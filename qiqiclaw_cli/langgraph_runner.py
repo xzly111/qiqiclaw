@@ -20,7 +20,16 @@ from qiqiclaw_constants import _set_legacy_env
 
 QIQICLAW_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_LANGGRAPH_SOURCE = QIQICLAW_ROOT / "vendor" / "langgraph-main"
-EXTERNAL_LANGGRAPH_SOURCE = Path("/home/szd/下载/langgraph-main")
+# External source override. Previously this was a hardcoded developer-machine
+# path ("/home/szd/下载/langgraph-main") which is a dead path on every other
+# machine. It is now driven by the QIQICLAW_LANGGRAPH_SOURCE env var so a
+# developer can point at a local langgraph checkout without editing source;
+# unset (the normal case) means "no external source — use the bundled vendor
+# copy", which the resolution chain below already prefers.
+_EXTERNAL_LANGGRAPH_ENV = os.environ.get("QIQICLAW_LANGGRAPH_SOURCE", "").strip()
+EXTERNAL_LANGGRAPH_SOURCE = (
+    Path(_EXTERNAL_LANGGRAPH_ENV).expanduser() if _EXTERNAL_LANGGRAPH_ENV else None
+)
 DEFAULT_LANGGRAPH_SOURCE = BUNDLED_LANGGRAPH_SOURCE
 
 
@@ -45,7 +54,12 @@ def _resolve_langgraph_source(source_path: str | os.PathLike[str] | None = None)
         return Path(source_path).expanduser()
     if BUNDLED_LANGGRAPH_SOURCE.exists():
         return BUNDLED_LANGGRAPH_SOURCE
-    return EXTERNAL_LANGGRAPH_SOURCE
+    if EXTERNAL_LANGGRAPH_SOURCE is not None:
+        return EXTERNAL_LANGGRAPH_SOURCE
+    # No bundled vendor copy and no external override configured: return the
+    # bundled path anyway so downstream .exists() checks fail cleanly with a
+    # meaningful path rather than crashing on None.
+    return BUNDLED_LANGGRAPH_SOURCE
 
 
 def _langgraph_source_paths(source_path: str | os.PathLike[str] | None = None) -> list[Path]:
@@ -144,7 +158,9 @@ def get_langgraph_runtime_status(source_path: str | os.PathLike[str] | None = No
         "error": error,
         "source_path": activated_source,
         "bundled_source_path": str(BUNDLED_LANGGRAPH_SOURCE.resolve()),
-        "external_source_path": str(EXTERNAL_LANGGRAPH_SOURCE.resolve()),
+        "external_source_path": (
+            str(EXTERNAL_LANGGRAPH_SOURCE.resolve()) if EXTERNAL_LANGGRAPH_SOURCE else ""
+        ),
         "module_file": module_file,
         "graph_module_file": graph_module_file,
         "package_paths": package_paths,
