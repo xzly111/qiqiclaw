@@ -802,7 +802,10 @@ def run_conversation(
             _turn_msg = original_user_message if isinstance(original_user_message, str) else ""
             agent._memory_manager.on_turn_start(agent._user_turn_count, _turn_msg)
         except Exception:
-            pass
+            # Best-effort: memory cadence tracking must never break the turn,
+            # but a silent failure here desyncs context/dialectic refresh —
+            # surface it so the cause is diagnosable instead of invisible.
+            logger.warning("memory on_turn_start failed (continuing)", exc_info=True)
 
     # External memory provider: prefetch once before the tool loop.
     # Reuse the cached result on every iteration to avoid re-calling
@@ -815,7 +818,11 @@ def run_conversation(
             _query = original_user_message if isinstance(original_user_message, str) else ""
             _ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
         except Exception:
-            pass
+            # Best-effort prefetch: on failure we proceed with empty context
+            # rather than aborting the turn, but a swallowed error here means
+            # the agent silently reasons without memory — log so it is visible.
+            logger.warning("memory prefetch_all failed (continuing without memory context)", exc_info=True)
+            _ext_prefetch_cache = ""
 
     # Optional opt-in runtime: if api_mode == codex_app_server, hand the
     # turn to the codex app-server subprocess (terminal/file ops/patching

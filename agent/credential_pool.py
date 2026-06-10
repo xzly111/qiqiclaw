@@ -1175,6 +1175,14 @@ class CredentialPool:
                         self._current_id = None
                     self._persist()
                     return None
+            # All provider-specific recovery paths above failed: this
+            # credential is now exhausted. This is operationally significant
+            # (the pool just lost a credential), so surface it at warning
+            # rather than leaving the only trace at debug level (line ~940).
+            logger.warning(
+                "Credential %s/%s exhausted after refresh failure: %s",
+                self.provider, entry.id, exc,
+            )
             self._mark_exhausted(entry, None)
             return None
 
