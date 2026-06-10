@@ -440,6 +440,14 @@ def _empty_record() -> Dict[str, Any]:
         "state": STATE_ACTIVE,
         "pinned": False,
         "archived_at": None,
+        # Outcome tracking — populated by the skill-evolution plugin via
+        # lifecycle hooks. success_count + failure_count let the orchestration
+        # layer prefer higher-success skills (borrowed from HyperAgents' archive
+        # scoring idea, without its code-self-rewrite). Backfilled on read for
+        # pre-existing usage files.
+        "success_count": 0,
+        "failure_count": 0,
+        "last_outcome_at": None,
     }
 
 
@@ -598,6 +606,29 @@ def mark_agent_created(skill_name: str) -> None:
     def _apply(rec: Dict[str, Any]) -> None:
         rec["created_by"] = "agent"
     _mutate(skill_name, _apply, require_curation_eligible=True)
+
+
+def record_outcome(skill_name: str, success: bool) -> None:
+    """Record a success/failure outcome for a skill used in a turn.
+
+    Best-effort observability written via the existing _mutate path (atomic +
+    locked). Used by the skill-evolution plugin's on_session_finalize hook.
+    """
+    def _apply(rec: Dict[str, Any]) -> None:
+        key = "success_count" if success else "failure_count"
+        rec[key] = int(rec.get(key, 0)) + 1
+        rec["last_outcome_at"] = _now_iso()
+    _mutate(skill_name, _apply)
+
+
+def success_rate(skill_name: str) -> Optional[float]:
+    """Return success / (success + failure) for a skill, or None if no outcomes
+    have been recorded yet. Lets the orchestration layer rank skills."""
+    rec = get_record(skill_name)
+    s = int(rec.get("success_count", 0))
+    f = int(rec.get("failure_count", 0))
+    total = s + f
+    return (s / total) if total > 0 else None
 
 
 def set_state(skill_name: str, state: str) -> None:
