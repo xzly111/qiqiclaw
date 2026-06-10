@@ -123,4 +123,32 @@
 
 ---
 
+## 六、品牌替换（Stage E）结论与边界
+
+目标曾设为"hermes → qiqiclaw 内部符号全替换"。实测后**收窄为安全可行的部分**：
+
+### 已完成（安全、已验证）
+- **桌面端 env 契约品牌化**：`HERMES_DESKTOP_*` → `QIQICLAW_DESKTOP_*`，
+  采用向后兼容方案（main.cjs 读 `QIQICLAW || HERMES` 双名，launcher 导出双名）。
+  前端构建（tsc+vite）验证通过。详见对应 commit。
+
+### 实测后判定**不应做**的部分
+| 类别 | 出现量 | 为何不改 |
+|------|--------|---------|
+| 模块名 `hermes_cli` | 被 665 文件 import | 改名=重写全后端 import，等同被否决的 Stage D 强制合并 |
+| 模块名 `hermes_constants/state/logging` | 328/175/9 | 同上 |
+| `HERMES_HOME` / `get_hermes_home()` | 450 文件 | 解析你的 **live state.db** 路径，误改丢数据（不可逆） |
+| 功能字符串 | 8,380 处 | `~/.hermes/` 路径、`hermes_pkce` 认证标签、`HERMES_*` env、`hermes` CLI 命令、`HermesAgent` User-Agent —— 均与行为/外部状态耦合，改了破坏兼容性 |
+
+### 关键事实：用户可见品牌已是 QiQiClaw
+- CLI 横幅/版本、桌面窗口标题、命令名均已是 QiQiClaw（实测无残留 "Hermes" 文案）。
+- 残留的 31k+ `hermes` 引用全是**内部符号/路径/类型名**，与功能逻辑逐行交织，
+  无安全的批量改名方案，且**用户可见收益为零**。
+
+**结论**：内部符号保持现状是正确工程决策。品牌已在用户层完成；继续深挖内部
+符号是高风险、零收益的负功。后续若要彻底归一，应走 ARCHITECTURE 第三节的
+增量收敛路线（建共享层 + 逐模块迁移 + 每步验证），而非一次性 rename。
+
+---
+
 *维护提示：本文档为 QiQiClaw 重构工作的架构基线。修改双内核结构前请先更新此文。*
