@@ -84,7 +84,7 @@ try {
   }
 }
 
-const USER_DATA_OVERRIDE = process.env.HERMES_DESKTOP_USER_DATA_DIR
+const USER_DATA_OVERRIDE = (process.env.QIQICLAW_DESKTOP_USER_DATA_DIR || process.env.HERMES_DESKTOP_USER_DATA_DIR)
 if (USER_DATA_OVERRIDE) {
   const resolvedUserData = path.resolve(USER_DATA_OVERRIDE)
   fs.mkdirSync(resolvedUserData, { recursive: true })
@@ -93,7 +93,7 @@ if (USER_DATA_OVERRIDE) {
 
 const PORT_FLOOR = 9120
 const PORT_CEILING = 9199
-const DEV_SERVER = process.env.HERMES_DESKTOP_DEV_SERVER
+const DEV_SERVER = (process.env.QIQICLAW_DESKTOP_DEV_SERVER || process.env.HERMES_DESKTOP_DEV_SERVER)
 const IS_PACKAGED = app.isPackaged
 const IS_MAC = process.platform === 'darwin'
 const IS_WINDOWS = process.platform === 'win32'
@@ -275,14 +275,14 @@ const DESKTOP_LOG_MAX_BYTES = 10 * 1024 * 1024
 const DESKTOP_LOG_BACKUP_COUNT = 3
 const DESKTOP_LOG_DISCARD_BYTES = DESKTOP_LOG_MAX_BYTES * 4
 const desktopLogBackupPath = n => `${DESKTOP_LOG_PATH}.${n}`
-const BOOT_FAKE_MODE = process.env.HERMES_DESKTOP_BOOT_FAKE === '1'
+const BOOT_FAKE_MODE = (process.env.QIQICLAW_DESKTOP_BOOT_FAKE || process.env.HERMES_DESKTOP_BOOT_FAKE) === '1'
 const BOOT_FAKE_STEP_MS = (() => {
-  const raw = Number.parseInt(String(process.env.HERMES_DESKTOP_BOOT_FAKE_STEP_MS || ''), 10)
+  const raw = Number.parseInt(String((process.env.QIQICLAW_DESKTOP_BOOT_FAKE_STEP_MS || process.env.HERMES_DESKTOP_BOOT_FAKE_STEP_MS) || ''), 10)
   if (!Number.isFinite(raw) || raw <= 0) return 650
   return Math.max(120, raw)
 })()
-const APP_NAME = process.env.HERMES_DESKTOP_APP_NAME || 'QiQiClaw'
-const UPDATES_DISABLED = process.env.HERMES_DESKTOP_DISABLE_UPDATES === '1'
+const APP_NAME = (process.env.QIQICLAW_DESKTOP_APP_NAME || process.env.HERMES_DESKTOP_APP_NAME) || 'QiQiClaw'
+const UPDATES_DISABLED = (process.env.QIQICLAW_DESKTOP_DISABLE_UPDATES || process.env.HERMES_DESKTOP_DISABLE_UPDATES) === '1'
 const TITLEBAR_HEIGHT = 34
 const MACOS_TRAFFIC_LIGHTS_HEIGHT = 14
 const WINDOW_BUTTON_POSITION = {
@@ -520,8 +520,8 @@ const backendPool = new Map() // profile -> { process, port, token, connectionPr
 // Keep the pool light: cap concurrent profile backends (LRU eviction) and reap
 // idle ones. A user idles at exactly the primary backend; pool backends only
 // exist while a non-primary profile is actively being chatted through.
-const POOL_MAX_BACKENDS = Math.max(1, Number(process.env.HERMES_DESKTOP_POOL_MAX) || 3)
-const POOL_IDLE_MS = Math.max(60_000, Number(process.env.HERMES_DESKTOP_POOL_IDLE_MS) || 10 * 60_000)
+const POOL_MAX_BACKENDS = Math.max(1, Number((process.env.QIQICLAW_DESKTOP_POOL_MAX || process.env.HERMES_DESKTOP_POOL_MAX)) || 3)
+const POOL_IDLE_MS = Math.max(60_000, Number((process.env.QIQICLAW_DESKTOP_POOL_IDLE_MS || process.env.HERMES_DESKTOP_POOL_IDLE_MS)) || 10 * 60_000)
 // A backend touched within this window has a live renderer socket (the keepalive
 // pings every 60s for every open profile). LRU eviction must spare these — a
 // concurrent multi-profile session keeps several backends "fresh" at once, and
@@ -1011,7 +1011,7 @@ function isHermesSourceRoot(root) {
 }
 
 function findPythonForRoot(root) {
-  const override = process.env.HERMES_DESKTOP_PYTHON
+  const override = (process.env.QIQICLAW_DESKTOP_PYTHON || process.env.HERMES_DESKTOP_PYTHON)
   if (override && fileExists(override)) return override
 
   const relativePaths = IS_WINDOWS
@@ -1250,7 +1250,7 @@ function writeDesktopUpdateConfig(config) {
 // HERMES_DESKTOP_HERMES_ROOT always wins so devs can pin a worktree.
 function resolveUpdateRoot() {
   const candidates = [
-    process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT),
+    (process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT) && path.resolve((process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT)),
     !IS_PACKAGED && isHermesSourceRoot(SOURCE_REPO_ROOT) ? SOURCE_REPO_ROOT : null,
     isHermesSourceRoot(ACTIVE_HERMES_ROOT) ? ACTIVE_HERMES_ROOT : null
   ].filter(Boolean)
@@ -1897,7 +1897,7 @@ function writeBootstrapMarker(payload) {
 }
 
 function resolveWebDist() {
-  const override = process.env.HERMES_DESKTOP_WEB_DIST
+  const override = (process.env.QIQICLAW_DESKTOP_WEB_DIST || process.env.HERMES_DESKTOP_WEB_DIST)
   if (override && directoryExists(path.resolve(override))) return path.resolve(override)
 
   const unpackedDist = path.join(unpackedPathFor(APP_ROOT), 'dist')
@@ -1921,7 +1921,7 @@ function resolveHermesCwd() {
   // real directory), then the home dir.
   const candidates = [
     readDefaultProjectDir(),
-    process.env.HERMES_DESKTOP_CWD,
+    (process.env.QIQICLAW_DESKTOP_CWD || process.env.HERMES_DESKTOP_CWD),
     process.env.INIT_CWD,
     IS_PACKAGED ? null : process.cwd(),
     !IS_PACKAGED ? SOURCE_REPO_ROOT : null,
@@ -2021,7 +2021,7 @@ function createActiveBackend(dashboardArgs) {
 function resolveHermesBackend(dashboardArgs) {
   // 1. Explicit override -- HERMES_DESKTOP_HERMES_ROOT points at a developer
   //    checkout. Honour it as-is (no bootstrap; the user is driving).
-  const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
+  const overrideRoot = (process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT) && path.resolve((process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT))
   if (overrideRoot && isHermesSourceRoot(overrideRoot)) {
     const backend = createPythonBackend(overrideRoot, `QiQiClaw source at ${overrideRoot}`, dashboardArgs)
     if (backend) return backend
@@ -2051,9 +2051,9 @@ function resolveHermesBackend(dashboardArgs) {
   //    do NOT write a bootstrap marker; the user did this themselves and we
   //    don't want to take ownership of an install we didn't perform.
   //    HERMES_DESKTOP_IGNORE_EXISTING=1 forces the bootstrap path for testing.
-  if (process.env.HERMES_DESKTOP_IGNORE_EXISTING !== '1') {
+  if ((process.env.QIQICLAW_DESKTOP_IGNORE_EXISTING || process.env.HERMES_DESKTOP_IGNORE_EXISTING) !== '1') {
     let hermesCommand = null
-    const hermesOverride = process.env.HERMES_DESKTOP_HERMES
+    const hermesOverride = (process.env.QIQICLAW_DESKTOP_HERMES || process.env.HERMES_DESKTOP_HERMES)
 
     if (hermesOverride) {
       const resolvedOverride = findOnPath(hermesOverride)
@@ -3882,7 +3882,7 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
     remoteTokenSet: Boolean(remoteToken),
     // The env override only forces the global/primary connection; a per-profile
     // scope is never overridden by HERMES_DESKTOP_REMOTE_URL.
-    envOverride: key ? false : Boolean(process.env.HERMES_DESKTOP_REMOTE_URL)
+    envOverride: key ? false : Boolean((process.env.QIQICLAW_DESKTOP_REMOTE_URL || process.env.HERMES_DESKTOP_REMOTE_URL))
   }
 }
 
@@ -4020,8 +4020,8 @@ async function resolveRemoteBackend(profile) {
   }
 
   // 2. Env override (global, token-auth only).
-  const rawEnvUrl = process.env.HERMES_DESKTOP_REMOTE_URL
-  const rawEnvToken = process.env.HERMES_DESKTOP_REMOTE_TOKEN
+  const rawEnvUrl = (process.env.QIQICLAW_DESKTOP_REMOTE_URL || process.env.HERMES_DESKTOP_REMOTE_URL)
+  const rawEnvToken = (process.env.QIQICLAW_DESKTOP_REMOTE_TOKEN || process.env.HERMES_DESKTOP_REMOTE_TOKEN)
   if (rawEnvUrl) {
     if (!rawEnvToken) {
       throw new Error(
@@ -4058,7 +4058,7 @@ function configuredRemoteProfileNames() {
 // Remote, or the env override): a SINGLE remote backend serves every profile via
 // ?profile=. Distinct from per-profile overrides — here there's one host for all.
 function globalRemoteActive() {
-  if (process.env.HERMES_DESKTOP_REMOTE_URL) {
+  if ((process.env.QIQICLAW_DESKTOP_REMOTE_URL || process.env.HERMES_DESKTOP_REMOTE_URL)) {
     return true
   }
   return readDesktopConnectionConfig().mode === 'remote'
