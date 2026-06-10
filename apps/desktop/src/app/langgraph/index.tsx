@@ -45,6 +45,37 @@ interface LangGraphRunResponse {
   }
 }
 
+interface OrchestrateCandidate {
+  model?: string | null
+  summary?: string | null
+  status?: string
+  _ensemble_label?: string
+}
+
+interface OrchestrateState {
+  task: string
+  mode?: string
+  status?: string
+  final?: string
+  error?: string
+  candidates?: OrchestrateCandidate[]
+  model_assignments?: Record<string, string>
+  schema_version?: number
+}
+
+interface OrchestrateRunResponse {
+  ok: boolean
+  dry_run: boolean
+  mode: string
+  state: OrchestrateState
+  workflow: {
+    nodes: string[]
+    edges: [string, string][]
+  }
+}
+
+type WorkflowMode = 'single' | 'orchestrate'
+
 interface LangGraphViewProps {
   onClose: () => void
 }
@@ -57,6 +88,23 @@ function apiAvailable(): boolean {
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2)
+}
+
+/** Parse "decide=strong,execute=fast" into { decide: 'strong', execute: 'fast' }. */
+function parseAssign(raw: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const pair of raw.split(',')) {
+    const trimmed = pair.trim()
+    const eq = trimmed.indexOf('=')
+    if (eq > 0) {
+      const role = trimmed.slice(0, eq).trim()
+      const model = trimmed.slice(eq + 1).trim()
+      if (role && model) {
+        out[role] = model
+      }
+    }
+  }
+  return out
 }
 
 export function LangGraphView({ onClose }: LangGraphViewProps) {
@@ -72,7 +120,20 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
   const [result, setResult] = useState<LangGraphRunResponse | null>(null)
   const [runError, setRunError] = useState('')
 
+  // Orchestration (multi-model) mode state.
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>('single')
+  const [models, setModels] = useState('')
+  const [assign, setAssign] = useState('')
+  const [orchResult, setOrchResult] = useState<OrchestrateRunResponse | null>(null)
+
   const workflowText = useMemo(() => {
+    if (workflowMode === 'orchestrate') {
+      const edges = orchResult?.workflow.edges ?? []
+      if (edges.length === 0) {
+        return 'START -> decide -> execute -> aggregate -> END'
+      }
+      return edges.map(([from, to]) => `${from} -> ${to}`).join('   ')
+    }
     const edges = status?.workflow.edges ?? result?.workflow.edges ?? []
 
     if (edges.length === 0) {
@@ -80,7 +141,7 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
     }
 
     return edges.map(([from, to]) => `${from} -> ${to}`).join('   ')
-  }, [result?.workflow.edges, status?.workflow.edges])
+  }, [orchResult?.workflow.edges, result?.workflow.edges, status?.workflow.edges, workflowMode])
 
   const loadStatus = async () => {
     setLoadingStatus(true)
@@ -113,6 +174,7 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
     if (!trimmedPrompt) {
       setRunError('请输入要执行的任务。')
       setResult(null)
+      setOrchResult(null)
       return
     }
 
@@ -123,28 +185,50 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
         throw new Error('QiQiClaw 桌面端 API 当前不可用。')
       }
 
-      const payload = await window.hermesDesktop!.api<LangGraphRunResponse>({
-        body: {
-          dry_run: dryRun,
-          model: model.trim() || null,
-          prompt: trimmedPrompt,
-          provider: provider.trim() || null,
-          toolsets: toolsets.trim() || null
-        },
-        method: 'POST',
-        path: '/api/langgraph/run',
-        timeoutMs: dryRun ? 30_000 : 300_000
-      })
-      setResult(payload)
+      if (workflowMode === 'orchestrate') {
+        const trimmedModels = models.trim()
+        const payload = await window.hermesDesktop!.api<OrchestrateRunResponse>({
+          body: {
+            dry_run: dryRun,
+            mode: trimmedModels ? 'ensemble' : 'single',
+            model_assignments: parseAssign(assign),
+            models: trimmedModels || null,
+            provider: provider.trim() || null,
+            task: trimmedPrompt,
+            toolsets: toolsets.trim() || null
+          },
+          method: 'POST',
+          path: '/api/orchestrate',
+          timeoutMs: dryRun ? 30_000 : 300_000
+        })
+        setOrchResult(payload)
+        setResult(null)
+      } else {
+        const payload = await window.hermesDesktop!.api<LangGraphRunResponse>({
+          body: {
+            dry_run: dryRun,
+            model: model.trim() || null,
+            prompt: trimmedPrompt,
+            provider: provider.trim() || null,
+            toolsets: toolsets.trim() || null
+          },
+          method: 'POST',
+          path: '/api/langgraph/run',
+          timeoutMs: dryRun ? 30_000 : 300_000
+        })
+        setResult(payload)
+        setOrchResult(null)
+      }
     } catch (error) {
       setResult(null)
+      setOrchResult(null)
       setRunError(error instanceof Error ? error.message : '工作流执行失败。')
     } finally {
       setRunning(false)
     }
   }
 
-  const ok = result?.ok
+  const ok = workflowMode === 'orchestrate' ? orchResult?.ok : result?.ok
   const unavailable = Boolean(status && !status.available)
 
   return (
@@ -187,6 +271,35 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
         <section className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
+          <div className="flex items-center gap-1 rounded-[6px] border border-(--ui-stroke-secondary) p-0.5 text-xs">
+            <button
+              aria-label="切换到单节点模式"
+              className={cn(
+                'flex-1 rounded-[4px] px-2 py-1 transition-colors',
+                workflowMode === 'single'
+                  ? 'bg-(--ui-bg-secondary) font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setWorkflowMode('single')}
+              type="button"
+            >
+              单节点
+            </button>
+            <button
+              aria-label="切换到多模型编排模式"
+              className={cn(
+                'flex-1 rounded-[4px] px-2 py-1 transition-colors',
+                workflowMode === 'orchestrate'
+                  ? 'bg-(--ui-bg-secondary) font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setWorkflowMode('orchestrate')}
+              type="button"
+            >
+              多模型编排
+            </button>
+          </div>
+
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground" htmlFor="langgraph-prompt">
               任务
@@ -199,10 +312,28 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="模型" value={model} onChange={setModel} placeholder="可选" />
-            <Field label="服务商" value={provider} onChange={setProvider} placeholder="可选" />
-          </div>
+          {workflowMode === 'orchestrate' ? (
+            <>
+              <Field
+                label="模型集"
+                value={models}
+                onChange={setModels}
+                placeholder='留空=单模型；多个用逗号，如 "gpt-4,openrouter:claude-3"'
+              />
+              <Field
+                label="角色分工"
+                value={assign}
+                onChange={setAssign}
+                placeholder='可选，如 "decide=strong,execute=fast"'
+              />
+              <Field label="服务商" value={provider} onChange={setProvider} placeholder="可选" />
+            </>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="模型" value={model} onChange={setModel} placeholder="可选" />
+              <Field label="服务商" value={provider} onChange={setProvider} placeholder="可选" />
+            </div>
+          )}
 
           <Field label="工具集" value={toolsets} onChange={setToolsets} placeholder="files,terminal" />
 
@@ -215,6 +346,9 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
           {status?.error && !status.available && <InlineError message={status.error} />}
           {runError && <InlineError message={runError} />}
           {result && !result.ok && result.state.error && <InlineError message={result.state.error} />}
+          {orchResult && !orchResult.ok && orchResult.state.error && (
+            <InlineError message={orchResult.state.error} />
+          )}
 
           <div className="flex items-center gap-2 pt-1">
             <Button disabled={running || unavailable} onClick={runWorkflow}>
@@ -235,26 +369,66 @@ export function LangGraphView({ onClose }: LangGraphViewProps) {
         <section className="flex min-h-0 flex-col gap-3 overflow-hidden border-l-0 border-(--ui-stroke-tertiary) lg:border-l lg:pl-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs font-semibold text-foreground">执行结果</h3>
-            {result && <Badge variant={ok ? 'default' : 'destructive'}>{ok ? '成功' : '错误'}</Badge>}
+            {(workflowMode === 'orchestrate' ? orchResult : result) && (
+              <Badge variant={ok ? 'default' : 'destructive'}>{ok ? '成功' : '错误'}</Badge>
+            )}
           </div>
 
           <div className="min-h-24 rounded-[6px] border border-(--ui-stroke-secondary) bg-(--ui-bg-secondary) p-3 text-xs leading-5 text-foreground">
-            {result?.state.response ? (
+            {workflowMode === 'orchestrate' ? (
+              orchResult?.state.final ? (
+                <pre className="whitespace-pre-wrap break-words font-sans">{orchResult.state.final}</pre>
+              ) : (
+                <span className="text-muted-foreground">尚未运行编排。</span>
+              )
+            ) : result?.state.response ? (
               <pre className="whitespace-pre-wrap break-words font-sans">{result.state.response}</pre>
             ) : (
               <span className="text-muted-foreground">尚未运行工作流。</span>
             )}
           </div>
 
+          {workflowMode === 'orchestrate' &&
+            orchResult?.state.candidates &&
+            orchResult.state.candidates.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-xs font-semibold text-foreground">
+                  候选结果（{orchResult.state.candidates.length}）
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  {orchResult.state.candidates.map((candidate, index) => (
+                    <div
+                      key={index}
+                      className="rounded-[6px] border border-(--ui-stroke-secondary) bg-(--ui-bg-secondary) p-2 text-[0.72rem] leading-5"
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <Badge variant="muted">{candidate.model || candidate._ensemble_label || `候选 ${index}`}</Badge>
+                        {candidate.status && (
+                          <span className="text-muted-foreground">{candidate.status}</span>
+                        )}
+                      </div>
+                      <pre className="whitespace-pre-wrap break-words font-sans text-muted-foreground">
+                        {candidate.summary || '(无输出)'}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           <div className="flex min-h-0 flex-1 flex-col gap-2">
             <h3 className="text-xs font-semibold text-foreground">图状态</h3>
             <pre
               className={cn(
                 'min-h-0 flex-1 overflow-auto rounded-[6px] border border-(--ui-stroke-secondary) bg-(--ui-bg-secondary) p-3 font-mono text-[0.72rem] leading-5 text-muted-foreground',
-                !result && 'text-muted-foreground/70'
+                !result && !orchResult && 'text-muted-foreground/70'
               )}
             >
-              {formatJson(result?.state ?? { status: 'idle', workflow: workflowText })}
+              {formatJson(
+                workflowMode === 'orchestrate'
+                  ? orchResult?.state ?? { status: 'idle', workflow: workflowText }
+                  : result?.state ?? { status: 'idle', workflow: workflowText }
+              )}
             </pre>
           </div>
         </section>
