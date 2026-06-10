@@ -454,6 +454,26 @@ class CredentialPool:
         self._lock = threading.Lock()
         self._active_leases: Dict[str, int] = {}
         self._max_concurrent = DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL
+        # Per-credential refresh locks. A token refresh performs blocking
+        # network I/O (urlopen timeout up to 10s) and consumes single-use
+        # OAuth refresh tokens, so it must be serialized *per credential* to
+        # avoid double-consuming a refresh token (-> refresh_token_reused ->
+        # account lockout). Using a per-entry lock instead of the global pool
+        # lock lets the network call run WITHOUT holding self._lock, so other
+        # sessions can still select/lease other credentials concurrently.
+        self._refresh_locks: Dict[str, threading.Lock] = {}
+        self._refresh_locks_guard = threading.Lock()
+
+    def _refresh_lock_for(self, credential_id: str) -> threading.Lock:
+        """Return the dedicated refresh lock for *credential_id*, creating it
+        on first use. Guarded by a short-lived meta-lock so the lock map itself
+        is thread-safe without holding the global pool lock during refresh."""
+        with self._refresh_locks_guard:
+            lock = self._refresh_locks.get(credential_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._refresh_locks[credential_id] = lock
+            return lock
 
     def has_credentials(self) -> bool:
         return bool(self._entries)
@@ -862,6 +882,18 @@ class CredentialPool:
                 self._mark_exhausted(entry, None)
             return None
 
+        # Serialize refresh per-credential. A refresh consumes a single-use
+        # OAuth refresh_token; two threads refreshing the SAME credential would
+        # double-consume it and trigger refresh_token_reused -> account lockout.
+        # This per-entry lock makes that guarantee explicit and independent of
+        # the global pool lock (defense-in-depth: it holds even if the global
+        # lock's coverage is ever narrowed), while still allowing DIFFERENT
+        # credentials to refresh concurrently.
+        refresh_lock = self._refresh_lock_for(entry.id)
+        with refresh_lock:
+            return self._refresh_entry_locked(entry, force=force)
+
+    def _refresh_entry_locked(self, entry: PooledCredential, *, force: bool) -> Optional[PooledCredential]:
         try:
             if self.provider == "anthropic":
                 from agent.anthropic_adapter import refresh_anthropic_oauth_pure
