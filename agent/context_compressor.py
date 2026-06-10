@@ -680,6 +680,12 @@ class ContextCompressor(ContextEngine):
         # succeeded.  Silent recovery would hide the broken config.
         self._last_aux_model_failure_error: Optional[str] = None
         self._last_aux_model_failure_model: Optional[str] = None
+        # Post-compression overflow tracking. After compress() runs we verify
+        # the result actually fits the model context window; if it still does
+        # not, callers (run_agent) can detect this and avoid firing an API call
+        # that is guaranteed to 400 with "context too long".
+        self._last_compressed_estimate: int = 0
+        self._last_compress_still_overflows: bool = False
 
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
@@ -2087,6 +2093,23 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         new_estimate = estimate_messages_tokens_rough(compressed)
         saved_estimate = display_tokens - new_estimate
+
+        # Post-compression overflow validation. Compression is a best-effort
+        # summarization; if the protected head + tail + summary still exceed
+        # the model context window, the very next API call would 400 with
+        # "context too long". Record this so run_agent can react (e.g. trigger
+        # a second, more aggressive pass) instead of firing a doomed request.
+        self._last_compressed_estimate = new_estimate
+        self._last_compress_still_overflows = (
+            self.context_length > 0 and new_estimate > self.context_length
+        )
+        if self._last_compress_still_overflows and not self.quiet_mode:
+            logger.warning(
+                "Compression result still exceeds context window: ~%d tokens > %d "
+                "(model context). A second compression pass or larger-context "
+                "model may be required.",
+                new_estimate, self.context_length,
+            )
 
         # Anti-thrashing: track compression effectiveness
         savings_pct = (saved_estimate / display_tokens * 100) if display_tokens > 0 else 0

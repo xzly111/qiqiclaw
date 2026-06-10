@@ -3233,6 +3233,23 @@ def run_conversation(
                     # messages to the new session, not skipping them.
                     conversation_history = None
 
+                    # Post-compression overflow check: the compressor verifies
+                    # whether its OWN output still exceeds the context window.
+                    # Message count can shrink while the result still overflows
+                    # (e.g. one oversized remaining turn), which would 400 again
+                    # on the retry below. Surface it so the cause is visible
+                    # instead of silently burning compression attempts.
+                    if getattr(compressor, "_last_compress_still_overflows", False):
+                        logger.warning(
+                            "%sCompression pass %d/%d shrank messages but result "
+                            "still exceeds context window (~%d tokens > %d). "
+                            "Retrying with another pass.",
+                            agent.log_prefix,
+                            compression_attempts, max_compression_attempts,
+                            getattr(compressor, "_last_compressed_estimate", 0),
+                            getattr(compressor, "context_length", 0),
+                        )
+
                     if len(messages) < original_len or new_ctx and new_ctx < old_ctx:
                         if len(messages) < original_len:
                             agent._buffer_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
