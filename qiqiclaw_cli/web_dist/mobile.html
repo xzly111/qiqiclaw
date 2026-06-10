@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f0f0f">
+<title>QiQi Claw</title>
+<style>
+:root{--bg:#0f0f0f;--bg2:#141414;--bg-card:#1a1a1a;--bg3:#1f1f1f;--bg4:#2a2a2a;--primary:#0080ff;--primary2:#0066cc;--green:#52c41a;--red:#ff3f3f;--yellow:#faad14;--border:#333;--border2:#444;--text:#fff;--text2:rgba(255,255,255,.65);--text3:rgba(255,255,255,.45);--text4:#999;--r:6px;--r2:8px;--r3:12px;--r4:16px;--font:"Noto Sans SC",-apple-system,sans-serif;--mono:"JetBrains Mono","Fira Code",monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;font:14px/1.6 var(--font);color:var(--text);background:var(--bg);overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{width:100%;height:100%;display:flex;flex-direction:column}
+.topbar{height:48px;min-height:48px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:10px}
+.topbar .logo{font-size:16px;font-weight:600;color:var(--text)}
+.topbar .st{font-size:11px;display:flex;align-items:center;gap:5px;color:var(--green)}
+.topbar .st .d{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.content{flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch}
+.msg{max-width:88%;padding:10px 14px;border-radius:var(--r);font-size:14px;line-height:1.6;word-break:break-word;margin-bottom:8px;animation:in .2s ease}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.msg.agent{background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--primary)}
+.msg.user{background:var(--primary);color:#fff;margin-left:auto;border-radius:var(--r) var(--r) 2px var(--r)}
+.msg .role{font-size:12px;font-weight:600;margin-bottom:5px;opacity:.8}
+.msg .role .dot2{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:middle}
+.input-bar{height:52px;min-height:52px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:8px}
+.input-bar input{flex:1;height:38px;border:1px solid var(--border2);border-radius:var(--r2);padding:0 14px;font-size:15px;font-family:var(--font);background:var(--bg);color:var(--text);outline:none}
+.input-bar input:focus{border-color:var(--primary)}
+.btn-send{width:38px;height:38px;border:none;background:var(--primary);color:#fff;border-radius:50%;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.btn-send:active{background:var(--primary2)}
+.btn-send.sending{opacity:.5}
+.tabbar{height:50px;min-height:50px;background:var(--bg2);border-top:1px solid var(--border);display:flex}
+.tab-btn{flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;color:var(--text3);font-size:10px;font-family:var(--font)}
+.tab-btn.active{color:var(--primary)}
+.tab-icon{font-size:18px}
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r3);padding:16px}
+.card-title{font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.card-value{font-size:22px;font-weight:600;color:var(--text)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.loading{display:flex;align-items:center;gap:8px;padding:10px 14px;color:var(--text2);font-size:13px;animation:in .2s ease}
+.spinner{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--primary);border-radius:50%;animation:s .6s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:40px 20px;color:var(--text4)}
+.empty-icon{font-size:48px;margin-bottom:12px}
+.empty-text{font-size:14px}
+.search{width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--r2);padding:0 14px;font-size:14px;font-family:var(--font);background:var(--bg);color:var(--text);outline:none;margin-bottom:8px}
+.search:focus{border-color:var(--primary)}
+.skill-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:8px}
+.skill-name{font-size:14px;font-weight:500;color:var(--text)}
+.skill-desc{font-size:12px;color:var(--text3);margin-top:4px}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;margin-top:6px}
+.tag-green{color:var(--green);background:rgba(82,196,26,.1)}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="topbar"><span class="logo">QiQi Claw</span><span class="st" id="st"><span class="d"></span>就绪</span></div>
+<div class="content" id="content">
+<div class="page active" id="page-chat"><div id="chat-msgs"><div class="empty"><div class="empty-icon">💬</div><div class="empty-text">发送消息开始对话</div></div></div></div>
+<div class="page" id="page-status"><div class="grid-2"><div class="card"><div class="card-title">CPU</div><div class="card-value" id="s-cpu">--</div></div><div class="card"><div class="card-title">内存</div><div class="card-value" id="s-mem">--</div></div><div class="card"><div class="card-title">会话</div><div class="card-value" id="s-sess">--</div></div><div class="card"><div class="card-title">Skills</div><div class="card-value" id="s-skill">--</div></div></div><div class="card" style="margin-top:8px"><div class="card-title">系统</div><div id="s-info" style="font-size:12px;color:var(--text2);font-family:var(--mono)"></div></div></div>
+<div class="page" id="page-skills"><input class="search" placeholder="搜索技能..." oninput="filt(this.value)"><div id="skill-list"></div></div>
+<div class="page" id="page-files"><div class="empty"><div class="empty-icon">📁</div><div class="empty-text">文件浏览</div></div></div>
+</div>
+<div class="input-bar" id="inp-bar"><input type="text" id="inp" placeholder="输入消息..." autocomplete="off"><button class="btn-send" id="btn-send" onclick="send()">▶</button></div>
+<div class="tabbar">
+<button class="tab-btn active" onclick="tab('chat',this)"><span class="tab-icon">💬</span>Chat</button>
+<button class="tab-btn" onclick="tab('status',this)"><span class="tab-icon">📊</span>状态</button>
+<button class="tab-btn" onclick="tab('skills',this)"><span class="tab-icon">🧩</span>技能</button>
+<button class="tab-btn" onclick="tab('files',this)"><span class="tab-icon">📁</span>文件</button>
+</div>
+</div>
+<script>
+var HOST=window.location.hostname;var API='http://'+HOST+':9122';var API_CHAT='http://'+HOST+':9122';
+var sending=false;
+
+document.getElementById('inp').addEventListener('keydown',function(e){if(e.key==='Enter')send();});
+
+function send(){
+  if(sending)return;
+  var t=document.getElementById('inp').value.trim();
+  if(!t)return;
+  sending=true;
+  document.getElementById('btn-send').classList.add('sending');
+  addMsg('user',t);
+  document.getElementById('inp').value='';
+  showLoad();
+  fetch(API+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:t})})
+  .then(function(r){return r.json()})
+  .then(function(d){hideLoad();addMsg('agent',d.content||'(无响应)');sending=false;document.getElementById('btn-send').classList.remove('sending');})
+  .catch(function(e){hideLoad();addMsg('agent','错误: 无法连接服务器');sending=false;document.getElementById('btn-send').classList.remove('sending');});
+}
+
+function addMsg(role,c){
+  var p=document.getElementById('chat-msgs');
+  var e=p.querySelector('.empty');if(e)e.remove();
+  var d=document.createElement('div');d.className='msg '+role;
+  if(role==='agent')d.innerHTML='<div class="role"><span class="dot2"></span>QiQi Claw</div>'+e2(c);
+  else d.textContent=c;
+  p.appendChild(d);p.parentElement.scrollTop=p.parentElement.scrollHeight;
+}
+
+function showLoad(){var p=document.getElementById('chat-msgs');var d=document.createElement('div');d.id='ld';d.className='loading';d.innerHTML='<div class="spinner"></div>思考中...';p.appendChild(d);p.parentElement.scrollTop=p.parentElement.scrollHeight;}
+function hideLoad(){var e=document.getElementById('ld');if(e)e.remove();}
+
+function tab(n,b){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.remove('active')});
+  document.getElementById('page-'+n).classList.add('active');
+  if(b)b.classList.add('active');
+  document.getElementById('inp-bar').style.display=(n==='chat')?'flex':'none';
+  if(n==='status')loadStatus();
+  if(n==='skills')loadSkills();
+}
+
+function loadStatus(){
+  fetch(API+'/api/status').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('s-cpu').textContent=(d.server_cpu_percent||'--')+'%';
+    document.getElementById('s-mem').textContent=(d.server_memory_percent||'--')+'%';
+    document.getElementById('s-sess').textContent=d.active_sessions||'0';
+    document.getElementById('s-info').textContent='v'+d.version+' | '+d.qiqiclaw_home;
+  });
+}
+
+function loadSkills(){
+  var c=document.getElementById('skill-list');
+  fetch(API+'/api/skills').then(function(r){return r.json()}).then(function(d){
+    var s=d.skills||d||[];
+    if(!s.length){c.innerHTML='<div class="empty"><div class="empty-icon">🧩</div><div class="empty-text">暂无技能</div></div>';return}
+    c.innerHTML=s.slice(0,20).map(function(x){return '<div class="skill-card"><div class="skill-name">📄 '+e2(x.name||x)+'</div><div class="skill-desc">'+e2(x.description||'')+'</div></div>'}).join('');
+  });
+}
+function filt(q){document.querySelectorAll('#skill-list .skill-card').forEach(function(c){c.style.display=c.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'})}
+function e2(s){if(!s)return'';var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+loadStatus();
+</script>
+</body>
+</html>

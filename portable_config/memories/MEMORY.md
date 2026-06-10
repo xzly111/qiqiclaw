@@ -1,0 +1,1 @@
+WSL2 Ubuntu 24.04.4 LTS on Windows host (username: Administrator). Home directory: /home/szd20020329. Windows C: drive at /mnt/c (201GB total, 57GB used). Desktop at /mnt/c/Users/Administrator/Desktop/.

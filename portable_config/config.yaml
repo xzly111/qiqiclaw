@@ -1,0 +1,99 @@
+model:
+  default: deepseek-v4-pro
+  provider: deepseek
+  base_url: https://api.deepseek.com/v1
+providers: {}
+fallback_providers: []
+credential_pool_strategies: {}
+toolsets:
+- qiqiclaw-cli
+agent:
+  max_turns: 90
+  gateway_timeout: 1800
+  restart_drain_timeout: 60
+  api_max_retries: 3
+  service_tier: ''
+  tool_use_enforcement: auto
+  gateway_timeout_warning: 900
+  gateway_notify_interval: 180
+  gateway_auto_continue_freshness: 3600
+  image_input_mode: auto
+  disabled_toolsets: []
+terminal:
+  backend: local
+  modal_mode: auto
+  cwd: .
+  timeout: 180
+  env_passthrough: []
+  shell_init_files: []
+  auto_source_bashrc: true
+  persistent_shell: true
+checkpoints:
+  enabled: true
+  max_snapshots: 50
+  auto_prune: false
+  retention_days: 7
+  delete_orphans: true
+  min_interval_hours: 6
+compression:
+  enabled: true
+  threshold: 0.65
+  target_ratio: 0.25
+  protect_last_n: 20
+  hygiene_hard_message_limit: 400
+display:
+  compact: false
+  personality: default
+  show_reasoning: true
+  streaming: true
+  final_response_markdown: keep
+  show_cost: true
+  skin: default
+  tool_progress: all
+auxiliary:
+  vision:
+    provider: auto
+    model: ''
+  compression:
+    provider: auto
+    model: ''
+  session_search:
+    provider: auto
+    model: ''
+delegation:
+  max_iterations: 50
+  child_timeout_seconds: 600
+  max_concurrent_children: 3
+  max_spawn_depth: 2
+  orchestrator_enabled: true
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+tts:
+  provider: edge
+stt:
+  enabled: true
+  provider: local
+approvals:
+  mode: manual
+  timeout: 60
+security:
+  tirith_enabled: false
+  redact_secrets: true
+network:
+  force_ipv4: true
+code_execution:
+  mode: project
+skills:
+  external_dirs: []
+curator:
+  enabled: true
+sessions:
+  auto_prune: true
+  retention_days: 90
+  vacuum_after_prune: true
+updates:
+  pre_update_backup: true
+  backup_keep: 5
+_config_version: 23

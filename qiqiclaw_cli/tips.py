@@ -1,0 +1,348 @@
+"""在 CLI 会话开始时显示的随机提示，帮助用户发现功能。"""
+
+import random
+
+
+# ---------------------------------------------------------------------------
+# 提示语料库 — 涵盖斜杠命令、CLI 标志、配置、
+# 键盘绑定、工具、网关、技能、配置文件和工作流技巧的单行提示。
+# ---------------------------------------------------------------------------
+
+TIPS = [
+    # --- 斜杠命令 ---
+    "/background <提示> (别名 /bg 或 /btw) 在单独的会话中运行任务，同时保持当前会话空闲。",
+    "/branch 分叉当前会话，以便您可以探索不同的方向而不会丢失进度。",
+    "/compress 在对话变长时手动压缩对话上下文。",
+    "/rollback 列出文件系统检查点 — 将代理修改的文件恢复到任何先前状态。",
+    "/rollback diff 2 预览自检查点 2 以来的更改，而不恢复任何内容。",
+    "/rollback 2 src/file.py 从特定检查点恢复单个文件。",
+    "/title \"我的项目\" 命名您的会话 — 稍后使用 /resume 或 qiqiclaw -c 恢复它。",
+    "/resume 从您上次离开的地方继续之前命名的会话。",
+    "/queue <提示> 将消息排队到下一轮，而不中断当前轮次。",
+    "/undo 从对话中删除最后一次用户/助手交换。",
+    "/retry 重新发送您的最后一条消息 — 当代理的响应不太正确时很有用。",
+    "/verbose 循环切换工具进度显示：关闭 → 新 → 全部 → 详细。",
+    "/reasoning high 增加模型的思考深度。/reasoning show 显示推理过程。",
+    "/fast 切换优先处理以获得更快的 API 响应（取决于提供商）。",
+    "/yolo 在会话的其余部分跳过所有危险命令批准提示。",
+    "/model 允许您在会话中切换模型 — 尝试 /model sonnet 或 /model gpt-5。",
+    "/model --global 永久更改您的默认模型。",
+    "/personality pirate 设置有趣的个性 — 14 个内置选项，从 kawaii 到 shakespeare。",
+    "/skin 更改 CLI 主题 — 尝试 ares、mono、slate、poseidon 或 charizard。",
+    "/statusbar 切换显示模型、令牌、上下文填充百分比、成本和持续时间的持久栏。",
+    "/tools disable browser 暂时删除当前会话的浏览器工具。",
+    "/browser connect 通过 CDP 将浏览器工具附加到正在运行的 Chrome 实例。",
+    "/plugins 列出已安装的插件及其状态。",
+    "/cron 管理计划任务 — 设置定期提示并交付到任何平台。",
+    "/reload-mcp 热重载 MCP 服务器配置而无需重启。",
+    "/usage 显示令牌使用情况、成本明细和会话持续时间。",
+    "/insights 显示过去 30 天的使用情况分析。",
+    "/paste 检查剪贴板中的图像并将其附加到您的下一条消息。",
+    "/profile 显示哪个配置文件处于活动状态及其主目录。",
+    "/config 一目了然地显示您当前的配置。",
+    "/stop 终止代理生成的所有正在运行的后台进程。",
+
+    # --- @ 上下文引用 ---
+    "@file:path/to/file.py 将文件内容直接注入到您的消息中。",
+    "@file:main.py:10-50 仅注入文件的第 10-50 行。",
+    "@folder:src/ 注入目录树列表。",
+    "@diff 将未暂存的 git 更改注入到消息中。",
+    "@staged 注入已暂存的 git 更改（git diff --staged）。",
+    "@git:5 注入最后 5 次提交及完整补丁。",
+    "@url:https://example.com 获取并注入网页内容。",
+    "输入 @ 触发文件系统路径补全 — 交互式导航到任何文件。",
+    "组合多个引用：\"检查 @file:main.py 和 @file:test.py 的一致性。\"",
+
+    # --- 键盘绑定 ---
+    "Alt+Enter（或 Ctrl+J）插入换行符以进行多行输入。",
+    "Ctrl+C 中断代理。在 2 秒内双击以强制退出。",
+    "Ctrl+Z 将 QiQiClaw 挂起到后台 — 在 shell 中运行 fg 以恢复。",
+    "Tab 接受自动建议的灰色文本或自动完成斜杠命令。",
+    "在代理工作时输入新消息以中断并重定向它。",
+    "Alt+V 将剪贴板中的图像粘贴到对话中。",
+    "粘贴 5 行以上会自动保存到文件并插入紧凑的引用。",
+
+    # --- CLI 标志 ---
+    "qiqiclaw -c 恢复您最近的 CLI 会话。qiqiclaw -c \"项目名称\" 按标题恢复。",
+    "qiqiclaw -w 创建隔离的 git 工作树 — 非常适合并行代理工作流。",
+    "qiqiclaw -w -q \"修复问题 #42\" 将工作树隔离与一次性查询结合起来。",
+    "qiqiclaw chat -t web,terminal 仅启用特定工具集以进行专注会话。",
+    "qiqiclaw chat -s github-pr-workflow 在启动时预加载技能。",
+    "qiqiclaw chat -q \"查询\" 运行单个非交互式查询并退出。",
+    "qiqiclaw chat --max-turns 200 覆盖每轮默认的 90 次迭代限制。",
+    "qiqiclaw chat --checkpoints 在每次破坏性文件更改之前启用文件系统快照。",
+    "qiqiclaw --yolo 绕过整个会话的所有危险命令批准提示。",
+    "qiqiclaw chat --source telegram 标记会话以在 qiqiclaw sessions list 中过滤。",
+    "qiqiclaw -p work chat 在特定配置文件下运行而不更改默认值。",
+
+    # --- CLI 子命令 ---
+    "qiqiclaw doctor --fix 诊断并自动修复配置和依赖项问题。",
+    "qiqiclaw dump 输出紧凑的设置摘要 — 非常适合错误报告。",
+    "qiqiclaw config set KEY VALUE 自动将密钥路由到 .env，将其他所有内容路由到 config.yaml。",
+    "qiqiclaw config edit 在默认编辑器中打开 config.yaml。",
+    "qiqiclaw config check 扫描缺失或过时的配置选项。",
+    "qiqiclaw sessions browse 打开带搜索的交互式会话选择器。",
+    "qiqiclaw sessions stats 按平台和数据库大小显示会话计数。",
+    "qiqiclaw sessions prune --older-than 30 清理旧会话。",
+    "qiqiclaw skills search react --source skills-sh 搜索 skills.sh 公共目录。",
+    "qiqiclaw skills check 扫描已安装的中心技能以获取上游更新。",
+    "qiqiclaw skills tap add myorg/skills-repo 添加自定义 GitHub 技能源。",
+    "qiqiclaw skills snapshot export setup.json 导出您的技能配置以进行备份或共享。",
+    "qiqiclaw mcp add github --command npx 从命令行添加 MCP 服务器。",
+    "qiqiclaw mcp serve 将 QiQiClaw 本身作为 MCP 服务器运行以供其他代理使用。",
+    "qiqiclaw auth add 允许您添加多个 API 密钥以进行凭据池轮换。",
+    "qiqiclaw completion bash >> ~/.bashrc 为所有命令和配置文件启用 Tab 补全。",
+    "qiqiclaw logs -f 实时跟踪 agent.log。--level WARNING --since 1h 过滤输出。",
+    "qiqiclaw backup 创建整个 QiQiClaw 主目录的 zip 备份。",
+    "qiqiclaw profile create coder 创建一个隔离的配置文件，该配置文件成为其自己的命令。",
+    "qiqiclaw profile create work --clone 将当前配置和密钥复制到新配置文件。",
+    "qiqiclaw update 自动将新捆绑的技能同步到所有配置文件。",
+    "qiqiclaw gateway install 将 QiQi 设置为系统服务（systemd/launchd）。",
+    "qiqiclaw memory setup 允许您配置外部内存提供程序（Honcho、Mem0 等）。",
+    "qiqiclaw webhook subscribe 创建带 HMAC 验证的事件驱动 webhook 路由。",
+    "省钱：qiqiclaw tools 禁用未使用的工具，qiqiclaw skills config 精简技能。",
+    "/reasoning low 或 /reasoning minimal 将思考深度降低到默认值（中等）以下 — 更快、更便宜的响应。",
+    "qiqiclaw models 将视觉、压缩和辅助任务路由到更便宜的模型 — 在不降级主聊天模型的情况下将后台令牌成本降低 85% 以上。",
+
+    # --- 配置 ---
+    "在 config.yaml 中设置 display.bell_on_complete: true 以在长任务完成时听到铃声。",
+    "设置 display.streaming: true 以在模型生成时实时查看令牌。",
+    "设置 display.show_reasoning: true 以观察模型的思维链推理。",
+    "设置 display.compact: true 以减少输出中的空白以获得更密集的信息。",
+    "设置 display.busy_input_mode: queue 以排队消息而不是中断代理，或设置 steer 以通过 /steer 在运行中注入它们。",
+    "设置 display.resume_display: minimal 以在会话恢复时跳过完整的对话回顾。",
+    "设置 compression.threshold: 0.50 以控制自动压缩何时触发（默认值：上下文的 50%）。",
+    "设置 agent.max_turns: 200 以让代理在每轮中执行更多工具调用步骤。",
+    "设置 file_read_max_chars: 200000 以增加每次 read_file 调用的最大内容。",
+    "设置 approvals.mode: smart 以让 LLM 自动批准安全命令并自动拒绝危险命令。",
+    "在 config.yaml 中设置 fallback_model 以自动故障转移到备份提供程序。",
+    "设置 privacy.redact_pii: true 以在发送到 LLM 之前对用户 ID 和电话号码进行哈希处理。",
+    "设置 browser.record_sessions: true 以将浏览器会话自动录制为 WebM 视频。",
+    "在 config.yaml 中设置 worktree: true 以始终创建 git 工作树（与 qiqiclaw -w 相同）。",
+    "设置 security.website_blocklist.enabled: true 以阻止 Web 工具访问特定域。",
+    "设置 cron.wrap_response: false 以提供原始代理输出，而不带 cron 页眉/页脚。",
+    "QIQICLAW_TIMEZONE 使用任何 IANA 时区字符串覆盖服务器时区。",
+    "环境变量替换在 config.yaml 中有效：使用 ${VAR_NAME} 语法。",
+    "config.yaml 中的快速命令以零令牌使用立即运行 shell 命令。",
+    "可以在 config.yaml 的 agent.personalities 下定义自定义个性。",
+    "provider_routing 控制 OpenRouter 提供程序排序、白名单和黑名单。",
+
+    # --- 工具和功能 ---
+    "execute_code 运行以编程方式调用 QiQiClaw 工具的 Python 脚本 — 结果保持在上下文之外。",
+    "delegate_task 默认生成最多 3 个并发子代理（delegation.max_concurrent_children），具有隔离的上下文以进行并行工作。",
+    "web_extract 适用于 PDF URL — 传递任何 PDF 链接，它会转换为 markdown。",
+    "search_files 由 ripgrep 支持，比 grep 更快 — 使用它而不是终端 grep。",
+    "patch 使用 9 种模糊匹配策略，因此微小的空白差异不会破坏编辑。",
+    "patch 支持 V4A 格式，可在单次调用中进行批量多文件编辑。",
+    "read_file 在找不到文件时建议类似的文件名。",
+    "read_file 自动去重 — 重新读取未更改的文件会返回轻量级存根。",
+    "browser_vision 截取屏幕截图并使用 AI 进行分析 — 适用于验证码和视觉内容。",
+    "browser_console 可以在页面上下文中评估 JavaScript 表达式。",
+    "image_generate 使用 FLUX 2 Pro 创建图像并自动进行 2 倍放大。",
+    "text_to_speech 将文本转换为音频 — 在 Telegram 上作为语音气泡播放。",
+    "send_message 可以从会话中访问任何连接的消息平台。",
+    "todo 工具帮助代理在会话期间跟踪复杂的多步骤任务。",
+    "session_search 对所有过去的对话执行全文搜索。",
+    "代理自动将偏好、更正和环境事实保存到内存中。",
+    "mixture_of_agents 通过 4 个前沿 LLM 协作路由难题。",
+    "终端命令支持后台模式，带有 notify_on_complete 用于长时间运行的任务。",
+    "终端后台进程支持 watch_patterns 以在特定输出行上发出警报。",
+    "终端工具支持 6 个后端：本地、Docker、SSH、Modal、Daytona 和 Singularity。",
+
+    # --- 配置文件 ---
+    "每个配置文件都有自己的配置、API 密钥、内存、会话、技能和 cron 作业。",
+    "配置文件名称成为 shell 命令 — 'qiqiclaw profile create coder' 创建 'coder' 命令。",
+    "qiqiclaw profile export coder -o backup.tar.gz 创建可移植的配置文件存档。",
+    "如果两个配置文件意外共享一个机器人令牌，第二个网关将被阻止并显示清晰的错误。",
+
+    # --- 会话 ---
+    "会话在第一次交换后自动生成描述性标题 — 无需手动命名。",
+    "会话标题支持谱系：\"我的项目\" → \"我的项目 #2\" → \"我的项目 #3\"。",
+    "退出时，QiQiClaw 打印带有会话 ID 和统计信息的恢复命令。",
+    "qiqiclaw sessions export backup.jsonl 导出所有会话以进行备份或分析。",
+    "qiqiclaw -r SESSION_ID 通过其 ID 恢复任何特定的过去会话。",
+
+    # --- 内存 ---
+    "内存是冻结的快照 — 更改仅在下次会话开始时出现在系统提示中。",
+    "内存条目会自动扫描提示注入和泄露模式。",
+    "代理有两个内存存储：个人笔记（约 2200 个字符）和用户配置文件（约 1375 个字符）。",
+    "您给代理的更正（\"不，这样做\"）通常会自动保存到内存中。",
+
+    # --- 技能 ---
+    "超过 80 个捆绑技能，涵盖 github、创意、mlops、生产力、研究等。",
+    "每个已安装的技能都会自动成为斜杠命令 — 输入 / 查看所有技能。",
+    "qiqiclaw skills install official/security/1password 从存储库安装可选技能。",
+    "技能可以限制为特定的操作系统平台 — 有些仅在 macOS 或 Linux 上加载。",
+    "config.yaml 中的 skills.external_dirs 允许您从自定义目录加载技能。",
+    "代理可以使用 skill_manage 创建自己的技能作为程序记忆。",
+    "plan 技能将 markdown 计划保存在活动工作区的 .qiqiclaw/plans/ 下。",
+
+    # --- Cron 和调度 ---
+    "Cron 作业可以附加技能：qiqiclaw cron add --skill blogwatcher \"检查新帖子\"。",
+    "Cron 交付目标包括 telegram、discord、slack、email、sms 和 12 个以上的平台。",
+    "如果 cron 响应以 [SILENT] 开头，则禁止交付 — 对仅监控作业很有用。",
+    "Cron 支持相对延迟（30m）、间隔（每 2h）、cron 表达式和 ISO 时间戳。",
+    "Cron 作业在完全新的代理会话中运行 — 提示必须是自包含的。",
+
+    # --- 语音 ---
+    "如果安装了 faster-whisper（免费本地语音转文本），语音模式可以在零 API 密钥的情况下工作。",
+    "提供五个 TTS 提供程序：Edge TTS（免费）、ElevenLabs、OpenAI、NeuTTS（免费本地）、MiniMax。",
+    "/voice on 在 CLI 中启用语音模式。Ctrl+B 切换按键通话录音。",
+    "流式 TTS 在生成句子时播放 — 您无需等待完整响应。",
+    "Telegram、Discord、WhatsApp 和 Slack 上的语音消息会自动转录。",
+
+    # --- 网关和消息传递 ---
+    "QiQi 在 18 个平台上运行：Telegram、Discord、Slack、WhatsApp、Signal、Matrix、电子邮件等。",
+    "qiqiclaw gateway install 将其设置为在启动时启动的系统服务。",
+    "DingTalk 使用流模式 — 不需要 webhook 或公共 URL。",
+    "BlueBubbles 通过本地 macOS 服务器将 iMessage 带到 QiQiClaw。",
+    "Webhook 路由支持 HMAC 验证、速率限制和事件过滤。",
+    "API 服务器公开与 Open WebUI 和 LibreChat 兼容的 OpenAI 兼容端点。",
+    "Discord 语音频道模式：机器人加入 VC，转录语音并回话。",
+    "group_sessions_per_user: true 为群聊中的每个人提供自己的会话。",
+    "/sethome 将聊天标记为 cron 作业交付的主频道。",
+    "网关支持基于不活动的超时 — 活动代理可以无限期运行。",
+
+    # --- 安全 ---
+    "危险命令批准有 4 个层级：一次、会话、始终（永久允许列表）、拒绝。",
+    "智能批准模式使用 LLM 自动批准安全命令并标记危险命令。",
+    "SSRF 保护阻止私有网络、环回、链路本地和云元数据地址。",
+    "Tirith 预执行扫描检测同形异义 URL 欺骗和管道到解释器模式。",
+    "MCP 子进程接收过滤的环境 — 只有安全的系统变量通过。",
+    "上下文文件（.qiqiclaw.md、AGENTS.md）在加载前会进行提示注入安全扫描。",
+    "config.yaml 中的 command_allowlist 永久批准特定的 shell 命令模式。",
+
+    # --- 上下文和压缩 ---
+    "当上下文达到阈值时自动压缩 — 内存被刷新，历史记录被总结。",
+    "状态栏随着上下文填充而变为黄色、橙色、红色。",
+    "~/.qiqiclaw/SOUL.md 中的 SOUL.md 是代理的主要身份 — 自定义它以塑造行为。",
+    "QiQi 从 .qiqiclaw.md、AGENTS.md、CLAUDE.md 或 .cursorrules（第一个匹配）加载项目上下文。",
+    "当代理导航到文件夹时，会逐步发现子目录 AGENTS.md 文件。",
+    "上下文文件限制为 20,000 个字符，具有智能头/尾截断。",
+
+    # --- 浏览器 ---
+    "五个浏览器提供程序：本地 Chromium、Browserbase、Browser Use、Camofox 和 Firecrawl。",
+    "Camofox 是一个反检测浏览器 — Firefox 分支，具有 C++ 指纹欺骗。",
+    "browser_navigate 自动返回页面快照 — 之后无需调用 browser_snapshot。",
+    "browser_vision 与 annotate=true 在交互元素上叠加编号标签。",
+
+    # --- MCP ---
+    "MCP 服务器在 config.yaml 中配置 — 支持 stdio 和 HTTP 传输。",
+    "每个服务器的工具过滤：tools.include 白名单和 tools.exclude 黑名单特定工具。",
+    "MCP 服务器在运行时自动生成工具集 — qiqiclaw tools 可以按平台切换它们。",
+    "MCP OAuth 支持：auth: oauth 启用基于浏览器的授权和 PKCE。",
+
+    # --- 检查点和回滚 ---
+    "当没有文件被修改时，检查点的开销为零 — 默认启用。",
+    "自动保存回滚前快照，以便您可以撤消撤消操作。",
+    "/rollback 还会撤消对话轮次，因此代理不会记住回滚的更改。",
+    "检查点使用 ~/.qiqiclaw/checkpoints/ 中的影子存储库 — 您项目的 .git 永远不会被触及。",
+
+    # --- 批处理和数据 ---
+    "batch_runner.py 并行处理数百个提示以生成训练数据。",
+    "qiqiclaw chat -Q 启用安静模式以进行编程使用 — 抑制横幅和旋转器。",
+    "轨迹保存（--save-trajectories）捕获完整的工具使用轨迹以进行模型训练。",
+
+    # --- 插件 ---
+    "三种插件类型：通用（工具/钩子）、内存提供程序和上下文引擎。",
+    "qiqiclaw plugins install owner/repo 直接从 GitHub 安装插件。",
+    "提供 8 个外部内存提供程序：Honcho、OpenViking、Mem0、Hindsight 等。",
+    "插件钩子包括 pre/post_tool_call、pre/post_llm_call 和 transform_terminal_output 以进行输出规范化。",
+
+    # --- 杂项 ---
+    "提示缓存（Anthropic）通过重用缓存的系统提示前缀来降低成本。",
+    "代理在后台线程中自动生成会话标题 — 零延迟影响。",
+    "智能模型路由可以自动将简单查询路由到更便宜的模型。",
+    "斜杠命令支持前缀匹配：/h 解析为 /help，/mod 解析为 /model。",
+    "将文件路径拖到终端会自动附加图像或作为上下文发送。",
+    "存储库根目录中的 .worktreeinclude 列出要复制到工作树中的 gitignored 文件。",
+    "qiqiclaw acp 将 QiQiClaw 作为 ACP 服务器运行，用于 VS Code、Zed 和 JetBrains 集成。",
+    "自定义提供程序：在 config.yaml 的 custom_providers 下保存命名端点。",
+    "QIQICLAW_EPHEMERAL_SYSTEM_PROMPT 注入一个永远不会持久化到历史记录的系统提示。",
+    "credential_pool_strategies 支持 fill_first、round_robin、least_used 和 random 轮换。",
+    "qiqiclaw login 支持基于 OAuth 的 Nous 和 OpenAI Codex 提供程序身份验证。",
+    "API 服务器支持带有服务器端状态的聊天完成和响应 API。",
+    "config 中的 tool_preview_length: 0 在旋转器的活动源中显示完整的文件路径。",
+    "qiqiclaw status --deep 对所有组件运行更深入的诊断检查。",
+
+    # --- 隐藏的宝石和高级用户技巧 ---
+    "Cron 作业可以附加 Python 脚本（--script），其 stdout 作为上下文注入到提示中。",
+    "Cron 脚本位于 ~/.qiqiclaw/scripts/ 中，在代理之前运行 — 非常适合数据收集管道。",
+    "config.yaml 中的 prefill_messages_file 将少样本示例注入到每个 API 调用中，永远不会保存到历史记录。",
+    "SOUL.md 完全替换代理的默认身份 — 重写它以使 QiQiClaw 成为您自己的。",
+    "SOUL.md 在首次运行时自动使用默认个性进行种子设定。编辑 ~/.qiqiclaw/SOUL.md 进行自定义。",
+    "/compress <焦点主题> 将 60-70% 的摘要预算分配给您的主题，并积极修剪其余部分。",
+    "在第二次以上压缩时，压缩器会更新先前的摘要，而不是从头开始。",
+    "在网关会话重置之前，QiQiClaw 会在后台自动将重要事实刷新到内存中。",
+    "config.yaml 中的 network.force_ipv4: true 修复了具有损坏的 IPv6 的服务器上的挂起 — 猴子补丁套接字。",
+    "终端工具注释常见的退出代码：grep 返回 1 = '未找到匹配项（不是错误）'。",
+    "失败的前台终端命令会自动重试最多 3 次，并使用指数退避（2s、4s、8s）。",
+    "裸 sudo 命令会自动重写为从 .env 管道 SUDO_PASSWORD — 不需要交互式提示。",
+    "execute_code 具有内置帮助程序：json_parse() 用于容错解析、shell_quote() 和带退避的 retry()。",
+    "execute_code 的 7 个沙箱工具（web_search、terminal、read/write/search/patch）使用 RPC — 永远不会进入上下文。",
+    "读取同一文件区域 3 次以上会触发警告。在 4 次以上时，它会被硬阻止以防止循环。",
+    "write_file 和 patch 检测文件自上次读取以来是否在外部修改，并警告过时。",
+    "V4A patch 格式支持添加文件、删除文件和移动文件指令 — 不仅仅是更新。",
+    "MCP 服务器可以通过采样请求 LLM 完成 — 代理成为服务器的工具。",
+    "MCP 服务器发送 notifications/tools/list_changed 以触发自动工具重新注册而无需重启。",
+    "delegate_task 与 acp_command: 'claude' 从任何平台生成 Claude Code 作为子代理。",
+    "委派有一个心跳线程 — 子活动传播到父级，防止网关超时。",
+    "当提供程序返回 HTTP 402（需要付款）时，辅助客户端会自动回退到下一个。",
+    "agent.tool_use_enforcement 引导描述操作而不是调用工具的模型 — GPT/Codex 自动。",
+    "agent.restart_drain_timeout（默认 60s）允许正在运行的代理在网关重启生效之前完成。",
+    "agent.api_max_retries（默认 3）控制代理在显示错误之前重试失败的 API 调用的次数 — 降低它以实现快速回退。",
+    "网关缓存每个会话的 AIAgent 实例 — 销毁此缓存会破坏 Anthropic 提示缓存。",
+    "任何网站都可以通过 /.well-known/skills/index.json 公开技能 — 技能中心会自动发现它们。",
+    "~/.qiqiclaw/skills/.hub/audit.log 中的技能审核日志跟踪每个安装和删除操作。",
+    "过时的 git 工作树会自动清理：24-72 小时旧且没有未推送提交的工作树在启动时被修剪。",
+    "每个配置文件在 QIQICLAW_HOME/home/ 获得自己的子进程 HOME — 隔离的 git、ssh、npm、gh 配置。",
+    "QIQICLAW_HOME_MODE 环境变量（八进制，例如 0701）为 Web 服务器遍历设置自定义目录权限。",
+    "容器模式：在 QIQICLAW_HOME 中放置 .container-mode，主机 CLI 会自动执行到容器中。",
+    "Ctrl+C 有 5 个优先级层：取消录音 → 取消提示 → 取消选择器 → 中断代理 → 退出。",
+    "代理运行期间的每次中断都会记录到 ~/.qiqiclaw/interrupt_debug.log 中，并带有时间戳。",
+    "BROWSER_CDP_URL 将浏览器工具连接到任何正在运行的 Chrome — 接受 WebSocket、HTTP 或 host:port。",
+    "BROWSERBASE_ADVANCED_STEALTH=true 使用自定义 Chromium 启用高级反检测（Scale Plan）。",
+    "CLI 在窄于 80 列的终端中自动切换到紧凑模式。",
+    "快速命令支持两种类型：exec（直接运行 shell 命令）和 alias（重定向到另一个命令）。",
+    "每任务委派模型：config 中的 delegation.model 和 delegation.provider 将子代理路由到更便宜的模型。",
+    "delegation.reasoning_effort 独立控制子代理的思考深度。",
+    "config.yaml 中的 display.platforms 允许每个平台的显示覆盖：{telegram: {tool_progress: all}}。",
+    "config 中的 human_delay.mode 模拟人类打字速度 — 可配置的 min_ms/max_ms 范围。",
+    "配置版本迁移在加载时自动运行 — 新配置键无需手动干预即可出现。",
+    "GPT 和 Codex 模型获得工具纪律和强制工具使用的特殊系统提示指导。",
+    "Gemini 模型获得针对绝对路径、并行工具调用和非交互式命令的定制指令。",
+    "config.yaml 中的 context.engine 可以设置为插件名称以实现替代上下文管理策略。",
+    "超过 8000 个令牌的浏览器页面在返回给代理之前由辅助 LLM 自动总结。",
+    "压缩器执行廉价的预传递：超过 200 个字符的工具输出在 LLM 运行之前被替换为占位符。",
+    "当压缩失败时，进一步的尝试会暂停 10 分钟以避免 API 锤击。",
+    "长危险命令（>70 个字符）在批准提示中获得 'view' 选项以首先查看完整文本。",
+    "音频电平可视化在语音录制期间根据麦克风 RMS 电平显示 ▁▂▃▄▅▆▇ 条。",
+    "配置文件名称不能与现有的 PATH 二进制文件冲突 — 'qiqiclaw profile create ls' 将被拒绝。",
+    "qiqiclaw profile create backup --clone-all 复制所有内容（配置、密钥、SOUL.md、内存、技能、会话）。",
+    "语音录制键可通过 config.yaml 中的 voice.record_key 配置 — 不仅仅是 Ctrl+B。",
+    ".cursorrules 和 .cursor/rules/*.mdc 文件会自动检测并作为项目上下文加载。",
+    "上下文文件支持 10 多种提示注入模式 — 不可见的 Unicode、'忽略指令'、泄露尝试。",
+    "GPT-5 和 Codex 在消息格式中使用 'developer' 角色而不是 'system'。",
+    "每任务辅助覆盖：config.yaml 中的 auxiliary.vision.provider、auxiliary.compression.model 等。",
+    "辅助客户端将 'main' 视为提供程序别名 — 解析为您的实际主要提供程序 + 模型。",
+    "qiqiclaw claw migrate --dry-run 预览 OpenClaw 迁移而不写入任何内容。",
+    "带引号或转义空格的文件路径会自动处理 — 无需手动清理。",
+    "斜杠命令永远不会触发大粘贴折叠 — 带有大参数的 /command 可以正常工作。",
+    "在中断模式下，在代理执行期间键入的斜杠命令会绕过中断逻辑并立即运行。",
+    "QIQICLAW_DEV=1 绕过容器模式检测以进行本地开发。",
+    "每个 MCP 服务器都有自己的工具集（mcp-servername），可以通过 qiqiclaw tools 独立切换。",
+    "config 中的 MCP ${ENV_VAR} 占位符在服务器生成时解析 — 包括来自 ~/.qiqiclaw/.env 的变量。",
+    "来自受信任存储库（QiQiClaw）的技能获得 'trusted' 安全级别；社区技能获得额外扫描。",
+    "~/.qiqiclaw/skills/.hub/quarantine/ 中的技能隔离区保存等待安全审查的技能。",
+]
+
+
+def get_random_tip(exclude_recent: int = 0) -> str:
+    """返回一个随机提示字符串。
+
+    Args:
+        exclude_recent: 当前未使用；保留供将来
+            跨会话去重使用。
+    """
+    return random.choice(TIPS)
+

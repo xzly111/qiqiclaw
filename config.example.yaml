@@ -1,0 +1,5 @@
+model:
+  provider: openrouter
+  default: openai/gpt-4o-mini
+agent:
+  max_turns: 90

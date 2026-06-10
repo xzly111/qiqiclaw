@@ -1,0 +1,175 @@
+"""Shared helpers for attaching QiQiClaw to a local Chrome CDP port."""
+
+from __future__ import annotations
+
+import os
+import platform
+import shlex
+import shutil
+import subprocess
+
+from qiqiclaw_constants import get_qiqiclaw_home
+from qiqiclaw_cli._subprocess_compat import windows_detach_popen_kwargs
+
+
+DEFAULT_BROWSER_CDP_PORT = 9222
+DEFAULT_BROWSER_CDP_URL = f"http://127.0.0.1:{DEFAULT_BROWSER_CDP_PORT}"
+
+_DARWIN_APPS = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+)
+
+_WINDOWS_BROWSER_GROUPS = (
+    (("chrome.exe", "chrome"), (("Google", "Chrome", "Application", "chrome.exe"),)),
+    (
+        ("chromium.exe", "chromium"),
+        (("Chromium", "Application", "chrome.exe"), ("Chromium", "Application", "chromium.exe")),
+    ),
+    (("brave.exe", "brave"), (("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),)),
+    (("msedge.exe", "msedge"), (("Microsoft", "Edge", "Application", "msedge.exe"),)),
+)
+
+_LINUX_BROWSER_GROUPS = (
+    (
+        ("google-chrome", "google-chrome-stable"),
+        ("/opt/google/chrome/chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"),
+    ),
+    (
+        ("chromium-browser", "chromium"),
+        ("/usr/bin/chromium-browser", "/usr/bin/chromium"),
+    ),
+    (
+        ("brave-browser", "brave-browser-stable", "brave"),
+        (
+            "/usr/bin/brave-browser",
+            "/usr/bin/brave-browser-stable",
+            "/usr/bin/brave",
+            "/snap/bin/brave",
+            "/opt/brave.com/brave/brave-browser",
+            "/opt/brave.com/brave/brave",
+            "/opt/brave-bin/brave",
+        ),
+    ),
+    (
+        ("microsoft-edge", "microsoft-edge-stable", "msedge"),
+        (
+            "/usr/bin/microsoft-edge",
+            "/usr/bin/microsoft-edge-stable",
+            "/opt/microsoft/msedge/microsoft-edge",
+            "/opt/microsoft/msedge/msedge",
+        ),
+    ),
+)
+
+def get_chrome_debug_candidates(system: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(path: str | None) -> None:
+        if not path:
+            return
+        normalized = os.path.normcase(os.path.normpath(path))
+        if normalized in seen or not os.path.isfile(path):
+            return
+        candidates.append(path)
+        seen.add(normalized)
+
+    def add_windows_install_paths(
+        bases: tuple[str | None, ...],
+        install_groups: tuple[tuple[tuple[str, ...], tuple[tuple[str, ...], ...]], ...],
+    ) -> None:
+        for _, group in install_groups:
+            for base in filter(None, bases):
+                for parts in group:
+                    add(os.path.join(base, *parts))
+
+    if system == "Darwin":
+        for app in _DARWIN_APPS:
+            add(app)
+        return candidates
+
+    if system == "Windows":
+        install_bases = (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+            os.environ.get("LOCALAPPDATA"),
+        )
+        for names, install_parts in _WINDOWS_BROWSER_GROUPS:
+            for name in names:
+                add(shutil.which(name))
+            for base in filter(None, install_bases):
+                for parts in install_parts:
+                    add(os.path.join(base, *parts))
+        return candidates
+
+    for names, paths in _LINUX_BROWSER_GROUPS:
+        for name in names:
+            add(shutil.which(name))
+        for path in paths:
+            add(path)
+    add_windows_install_paths(("/mnt/c/Program Files", "/mnt/c/Program Files (x86)"), _WINDOWS_BROWSER_GROUPS)
+    return candidates
+
+
+def chrome_debug_data_dir() -> str:
+    return str(get_qiqiclaw_home() / "chrome-debug")
+
+
+def _chrome_debug_args(port: int) -> list[str]:
+    return [
+        f"--remote-debugging-port={port}",
+        f"--user-data-dir={chrome_debug_data_dir()}",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+
+
+def manual_chrome_debug_command(port: int = DEFAULT_BROWSER_CDP_PORT, system: str | None = None) -> str | None:
+    system = system or platform.system()
+    candidates = get_chrome_debug_candidates(system)
+
+    if candidates:
+        argv = [candidates[0], *_chrome_debug_args(port)]
+        return subprocess.list2cmdline(argv) if system == "Windows" else shlex.join(argv)
+
+    if system == "Darwin":
+        data_dir = chrome_debug_data_dir()
+        return (
+            f'open -a "Google Chrome" --args --remote-debugging-port={port} '
+            f'--user-data-dir="{data_dir}" --no-first-run --no-default-browser-check'
+        )
+
+    return None
+
+
+def _detach_kwargs(system: str) -> dict:
+    if system != "Windows":
+        return {"start_new_session": True}
+    kwargs = windows_detach_popen_kwargs()
+    if "creationflags" in kwargs:
+        return kwargs
+    return {"creationflags": 0x00000200 | 0x00000008 | 0x08000000 | 0x01000000}
+
+
+def try_launch_chrome_debug(port: int = DEFAULT_BROWSER_CDP_PORT, system: str | None = None) -> bool:
+    system = system or platform.system()
+    candidates = get_chrome_debug_candidates(system)
+    if not candidates:
+        return False
+
+    os.makedirs(chrome_debug_data_dir(), exist_ok=True)
+    for candidate in candidates:
+        try:
+            subprocess.Popen(
+                [candidate, *_chrome_debug_args(port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **_detach_kwargs(system),
+            )
+            return True
+        except Exception:
+            continue
+    return False

@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foxel</title>
+  <script>
+  (function () {
+    try {
+      if (!localStorage.getItem("token")) {
+        localStorage.setItem("token", "qiqiclaw-stub-token");
+      }
+      var qs = new URLSearchParams(location.search);
+      var nav = qs.get("nav");
+      if (nav && /^[a-z_-]+$/.test(nav)) {
+        history.replaceState({}, "", nav === "files" ? "/files/local" : "/" + nav);
+      } else if (location.pathname === "/foxel-spa/" || location.pathname === "/foxel-spa") {
+        history.replaceState({}, "", "/files/local");
+      } else if (location.pathname.startsWith("/foxel-spa/")) {
+        var rest = location.pathname.substring("/foxel-spa".length);
+        history.replaceState({}, "", rest || "/files/local");
+      }
+    } catch (_) {}
+  })();
+  </script>
+  <script type="module" crossorigin src="/foxel-spa/assets/main-D-C--_do.js"></script>
+  <link rel="modulepreload" crossorigin href="/foxel-spa/assets/externals-Dwu7vlyM.js">
+  <link rel="stylesheet" crossorigin href="/foxel-spa/assets/externals-C_IrJr-g.css">
+  <link rel="stylesheet" crossorigin href="/foxel-spa/assets/main-DueFv3ui.css">
+  <style>
+    .ant-layout-sider,
+    .ant-layout-sider-children,
+    .ant-layout-sider-trigger {
+      display: none !important;
+    }
+    .ant-layout:has(> .ant-layout-sider) > .ant-layout,
+    .ant-layout:has(> .ant-layout-sider) > main,
+    .ant-layout:has(> .ant-layout-sider) > section {
+      margin-left: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+    }
+	    .foxel-qiqiclaw-hidden,
+	    [data-foxel-qiqiclaw-hidden="1"] {
+	      display: none !important;
+	    }
+	    .qiqiclaw-hide-account-entry,
+	    #qiqiclaw-agent-panel {
+	      display: none !important;
+	    }
+	    header .ant-space:has(.anticon-bell),
+	    header .ant-space:has(.anticon-robot),
+	    header .ant-space:has(.anticon-translation),
+	    header .ant-space:has(.anticon-global),
+	    header .ant-space:has(.anticon-user),
+	    header .ant-space:has(.anticon-team),
+	    .ant-layout-header .ant-space:has(.anticon-bell),
+	    .ant-layout-header .ant-space:has(.anticon-robot),
+	    .ant-layout-header .ant-space:has(.anticon-translation),
+	    .ant-layout-header .ant-space:has(.anticon-global),
+	    .ant-layout-header .ant-space:has(.anticon-user),
+	    .ant-layout-header .ant-space:has(.anticon-team),
+	    header button:has(.anticon-bell),
+	    header button:has(.anticon-robot),
+	    header button:has(.anticon-translation),
+	    header button:has(.anticon-global),
+	    header button:has(.anticon-user),
+	    header button:has(.anticon-team),
+	    .ant-layout-header button:has(.anticon-bell),
+	    .ant-layout-header button:has(.anticon-robot),
+	    .ant-layout-header button:has(.anticon-translation),
+	    .ant-layout-header button:has(.anticon-global),
+	    .ant-layout-header button:has(.anticon-user),
+	    .ant-layout-header button:has(.anticon-team) {
+	      display: none !important;
+	    }
+    #qiqiclaw-agent-panel {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      width: min(380px, calc(100vw - 36px));
+      max-height: min(560px, calc(100vh - 36px));
+      z-index: 2147483000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, .36);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .98);
+      box-shadow: 0 18px 48px rgba(15, 23, 42, .18);
+      color: #111827;
+      font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #qiqiclaw-agent-panel[data-collapsed="1"] {
+      width: auto;
+      max-height: none;
+    }
+    #qiqiclaw-agent-panel[data-collapsed="1"] .qiqiclaw-agent-body,
+    #qiqiclaw-agent-panel[data-collapsed="1"] .qiqiclaw-agent-footer {
+      display: none;
+    }
+    .qiqiclaw-agent-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, .22);
+      background: #f8fafc;
+    }
+    .qiqiclaw-agent-title {
+      flex: 1;
+      min-width: 0;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .qiqiclaw-agent-path {
+      display: block;
+      margin-top: 2px;
+      color: #64748b;
+      font-weight: 400;
+      font-size: 12px;
+    }
+    .qiqiclaw-agent-icon-btn,
+    .qiqiclaw-agent-send,
+    .qiqiclaw-agent-approval button {
+      border: 1px solid rgba(148, 163, 184, .45);
+      border-radius: 6px;
+      background: #fff;
+      color: #111827;
+      cursor: pointer;
+    }
+    .qiqiclaw-agent-icon-btn {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+    }
+    .qiqiclaw-agent-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      overflow: auto;
+    }
+    .qiqiclaw-agent-msg {
+      border-radius: 8px;
+      padding: 8px 9px;
+      background: #f1f5f9;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .qiqiclaw-agent-msg[data-role="user"] {
+      align-self: flex-end;
+      max-width: 88%;
+      background: #e0f2fe;
+    }
+    .qiqiclaw-agent-msg[data-role="tool"] {
+      background: #ecfdf5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .qiqiclaw-agent-msg[data-role="error"] {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .qiqiclaw-agent-approval {
+      border: 1px solid rgba(245, 158, 11, .42);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fffbeb;
+    }
+    .qiqiclaw-agent-approval strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .qiqiclaw-agent-approval pre {
+      max-height: 120px;
+      overflow: auto;
+      margin: 6px 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+    }
+    .qiqiclaw-agent-approval-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .qiqiclaw-agent-approval button,
+    .qiqiclaw-agent-send {
+      min-height: 30px;
+      padding: 0 10px;
+    }
+    .qiqiclaw-agent-send {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+    .qiqiclaw-agent-footer {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid rgba(148, 163, 184, .22);
+      background: #fff;
+    }
+    .qiqiclaw-agent-input {
+      flex: 1;
+      min-width: 0;
+      min-height: 34px;
+      max-height: 96px;
+      resize: vertical;
+      border: 1px solid rgba(148, 163, 184, .55);
+      border-radius: 6px;
+      padding: 7px 8px;
+      font: inherit;
+    }
+    @media (prefers-color-scheme: dark) {
+      #qiqiclaw-agent-panel {
+        background: rgba(15, 23, 42, .98);
+        border-color: rgba(71, 85, 105, .85);
+        color: #e5e7eb;
+      }
+      .qiqiclaw-agent-head,
+      .qiqiclaw-agent-footer {
+        background: #0f172a;
+        border-color: rgba(71, 85, 105, .75);
+      }
+      .qiqiclaw-agent-path { color: #94a3b8; }
+      .qiqiclaw-agent-msg { background: #1e293b; }
+      .qiqiclaw-agent-msg[data-role="user"] { background: #0c4a6e; }
+      .qiqiclaw-agent-msg[data-role="tool"] { background: #064e3b; }
+      .qiqiclaw-agent-msg[data-role="error"] {
+        background: #450a0a;
+        color: #fecaca;
+      }
+      .qiqiclaw-agent-icon-btn,
+      .qiqiclaw-agent-input,
+      .qiqiclaw-agent-approval button {
+        background: #111827;
+        color: #e5e7eb;
+        border-color: rgba(71, 85, 105, .9);
+      }
+      .qiqiclaw-agent-approval {
+        background: #422006;
+        border-color: rgba(245, 158, 11, .55);
+      }
+      .qiqiclaw-agent-send {
+        background: #e5e7eb;
+        color: #111827;
+        border-color: #e5e7eb;
+      }
+    }
+  </style>
+  <script>
+  (function () {
+    var KEEP_LABELS = new Set([
+      "全部文件","处理器","存储挂载","应用中心",
+      "Files","Processors","Storage Mounts","App Center","Applications","Plugins"
+    ]);
+    var USER_LABELS = [
+	      "AI 助手","AI助手","助手","Agent","AI Assistant","Assistant",
+	      "语言","切换语言","Language","Locale","简体中文","English",
+	      "管理员","管理員","账户","账号","个人资料",
+	      "Administrator","admin","用户","用户管理","角色","权限","路径规则",
+      "User","Users","User Management","Roles","Permissions","Path Rules",
+      "Profile","Account","Logout","Log out","Sign out"
+    ];
+    function normalizeLabel(node) {
+      return (node.textContent || "").replace(/\s+/g, "").trim();
+    }
+	    function hideNode(node) {
+	      if (!node) return;
+	      node.setAttribute("data-foxel-qiqiclaw-hidden", "1");
+	      node.classList.add("foxel-qiqiclaw-hidden");
+      node.style.display = "none";
+      if (hasUserLabel(node.textContent || "")) {
+        node.setAttribute("aria-hidden", "true");
+        node.textContent = "";
+      }
+    }
+    function hasUserLabel(text) {
+      var raw = text || "";
+      var compact = raw.replace(/\s+/g, "").trim();
+      for (var i = 0; i < USER_LABELS.length; i++) {
+        var label = USER_LABELS[i];
+        if (raw.indexOf(label) >= 0 || compact.indexOf(label.replace(/\s+/g, "")) >= 0) return true;
+	      }
+	      return false;
+	    }
+	    function hasUserIcon(node) {
+	      return !!(
+	        node &&
+	        node.querySelector &&
+	        node.querySelector('.anticon-bell, .anticon-robot, .anticon-translation, .anticon-global, .anticon-user, .anticon-team')
+	      );
+	    }
+		    function hideAccountEntry(node) {
+		      if (!node) return;
+		      node.classList.add("qiqiclaw-hide-account-entry");
+		      hideNode(node);
+		    }
+	    function tuneShell() {
+	      try {
+        document.querySelectorAll('.ant-layout-sider, .ant-layout-sider-trigger').forEach(function (n) {
+          hideNode(n);
+        });
+        document.querySelectorAll('.ant-layout').forEach(function (n) {
+          n.style.marginLeft = "0";
+          n.style.width = "100%";
+          n.style.maxWidth = "none";
+        });
+        var itemSel = '.ant-menu-item, .ant-menu-submenu';
+        var nodes = document.querySelectorAll(itemSel);
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          var t = normalizeLabel(n);
+          var keep = false;
+          KEEP_LABELS.forEach(function (label) {
+            if (t === label || t.indexOf(label) >= 0) keep = true;
+          });
+          if (keep) {
+            n.removeAttribute("data-foxel-qiqiclaw-hidden");
+            n.classList.remove("foxel-qiqiclaw-hidden");
+            n.style.display = "";
+          } else {
+            hideNode(n);
+          }
+        }
+        var groups = document.querySelectorAll('.ant-menu-item-group-title, .ant-menu-title-content');
+        for (var j = 0; j < groups.length; j++) {
+          var g = groups[j];
+          var gt = normalizeLabel(g);
+          if (gt === "管理" || gt === "系统" || gt === "Manage" || gt === "System") {
+            var group = g.closest('.ant-menu-item-group');
+            if (group) hideNode(group);
+            else hideNode(g);
+          }
+        }
+        document.querySelectorAll('.ant-menu-item-group').forEach(function (group) {
+          if (!group.querySelector('.ant-menu-item:not([style*="display: none"]), .ant-menu-submenu:not([style*="display: none"])')) {
+            hideNode(group);
+          }
+        });
+        document.querySelectorAll('button, .ant-btn, .ant-badge, [role="button"]').forEach(function (n) {
+          var label = normalizeLabel(n);
+          if (
+            label === "公告" || label === "通知" || label === "Notices" || label === "Notifications" ||
+            hasUserLabel(n.textContent || "") ||
+            n.querySelector('.anticon-bell, .anticon-robot, .anticon-translation, .anticon-global, .anticon-user, .anticon-team')
+          ) {
+            hideNode(n);
+          }
+        });
+	        document.querySelectorAll('.ant-avatar, .ant-dropdown-trigger, header *, .ant-layout-header *').forEach(function (n) {
+	          var text = n.textContent || "";
+	          var aria = (n.getAttribute && (n.getAttribute("aria-label") || n.getAttribute("title"))) || "";
+	          if (hasUserLabel(text) || hasUserLabel(aria)) {
+	            hideAccountEntry(n.closest('.ant-space, .ant-dropdown-trigger, button, [role="button"], .ant-avatar') || n);
+	          }
+	        });
+	        document.querySelectorAll(
+	          'header .ant-avatar, header .ant-dropdown-trigger, header .ant-space, header button, header [role="button"], ' +
+	          '.ant-layout-header .ant-avatar, .ant-layout-header .ant-dropdown-trigger, .ant-layout-header .ant-space, .ant-layout-header button, .ant-layout-header [role="button"]'
+	        ).forEach(function (n) {
+	          if (!hasUserIcon(n) && !hasUserLabel(n.textContent || "")) return;
+	          hideAccountEntry(n.closest('.ant-space, .ant-dropdown-trigger, button, [role="button"], .ant-avatar') || n);
+	        });
+	        document.querySelectorAll('.ant-dropdown, .ant-popover, .ant-modal, .ant-select-dropdown').forEach(function (n) {
+	          if (hasUserLabel(n.textContent || "")) hideNode(n);
+	        });
+        document.querySelectorAll('.ant-modal').forEach(function (modal) {
+          var label = normalizeLabel(modal);
+          if (label.indexOf("公告") >= 0 || label.indexOf("暂无公告") >= 0 || label.indexOf("Notices") >= 0) {
+            var close = modal.querySelector('.ant-modal-close');
+            if (close) close.click();
+            else hideNode(modal);
+          }
+        });
+      } catch (_) {}
+    }
+    var mo = new MutationObserver(function () { tuneShell(); });
+    document.addEventListener("DOMContentLoaded", function () {
+      tuneShell();
+      mo.observe(document.body, { childList: true, subtree: true });
+    });
+    setInterval(tuneShell, 800);
+  })();
+	  </script>
+	  <script>
+	  (function () {
+	    var ENABLE_AGENT_PANEL = false;
+	    var state = {
+      messages: [],
+      pending: [],
+      busy: false,
+      ws: null,
+      wsReady: false,
+      sessionId: "",
+      useGateway: true,
+      rpcId: 0,
+      pendingPromptId: 0,
+      collapsed: localStorage.getItem("qiqiclaw-agent-panel-collapsed") === "1"
+    };
+
+    function token() {
+      return window.__QIQICLAW_SESSION_TOKEN__ || window.__HERMES_SESSION_TOKEN__ || "";
+    }
+
+    function rpc(method, params) {
+      if (!state.ws || state.ws.readyState !== 1) return;
+      var id = ++state.rpcId;
+      state.ws.send(JSON.stringify({
+        jsonrpc: "2.0",
+        id: id,
+        method: method,
+        params: params || {}
+      }));
+      return id;
+    }
+
+    function normalizePath(value) {
+      value = String(value || "").replace(/\\/g, "/").trim();
+      if (!value) return "/";
+      if (value.charAt(0) !== "/") value = "/" + value;
+      return value.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
+    }
+
+    function currentPath() {
+      var path = location.pathname || "/";
+      if (path.indexOf("/foxel-spa") === 0) {
+        path = path.slice("/foxel-spa".length) || "/";
+      }
+      if (path.indexOf("/files") === 0) {
+        path = path.slice("/files".length) || "/";
+      }
+      return normalizePath(path || "/");
+    }
+
+    function currentModule() {
+      var path = location.pathname || "";
+      if (path.indexOf("/plugins") >= 0) return "应用中心";
+      if (path.indexOf("/processors") >= 0) return "处理器";
+      if (path.indexOf("/adapters") >= 0) return "存储挂载";
+      return "全部文件";
+    }
+
+    function shortText(text, limit) {
+      text = String(text == null ? "" : text);
+      if (text.length <= limit) return text;
+      return text.slice(0, limit) + "\n...";
+    }
+
+    function renderResultContent(content) {
+      if (typeof content !== "string") return shortText(JSON.stringify(content, null, 2), 1200);
+      try {
+        var payload = JSON.parse(content);
+        if (payload && payload.summary) return shortText(payload.summary + "\n" + JSON.stringify(payload.data || payload.view || payload, null, 2), 1200);
+      } catch (_) {}
+      return shortText(content, 1200);
+    }
+
+    function ensurePanel() {
+      var panel = document.getElementById("qiqiclaw-agent-panel");
+      if (panel) return panel;
+      panel = document.createElement("section");
+      panel.id = "qiqiclaw-agent-panel";
+      panel.innerHTML = [
+        '<div class="qiqiclaw-agent-head">',
+          '<div class="qiqiclaw-agent-title">AI 文件任务<span class="qiqiclaw-agent-path"></span></div>',
+          '<button class="qiqiclaw-agent-icon-btn" data-action="refresh" title="刷新上下文">↻</button>',
+          '<button class="qiqiclaw-agent-icon-btn" data-action="collapse" title="收起/展开">–</button>',
+        '</div>',
+        '<div class="qiqiclaw-agent-body"></div>',
+        '<form class="qiqiclaw-agent-footer">',
+          '<textarea class="qiqiclaw-agent-input" rows="1" placeholder="列出当前目录、搜索 合同、查看 `/local/file.txt` 内容"></textarea>',
+          '<button class="qiqiclaw-agent-send" type="submit">发送</button>',
+        '</form>'
+      ].join("");
+      document.body.appendChild(panel);
+      panel.querySelector('[data-action="collapse"]').addEventListener("click", function () {
+        state.collapsed = !state.collapsed;
+        localStorage.setItem("qiqiclaw-agent-panel-collapsed", state.collapsed ? "1" : "0");
+        renderPanel();
+      });
+      panel.querySelector('[data-action="refresh"]').addEventListener("click", function () {
+        renderPanel();
+      });
+      panel.querySelector("form").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var input = panel.querySelector(".qiqiclaw-agent-input");
+        var text = input.value.trim();
+        if (!text || state.busy) return;
+        input.value = "";
+        sendAgent(text);
+      });
+      return panel;
+    }
+
+    function renderPanel() {
+      var panel = ensurePanel();
+      panel.setAttribute("data-collapsed", state.collapsed ? "1" : "0");
+      panel.querySelector(".qiqiclaw-agent-path").textContent = currentModule() + " · " + currentPath();
+      panel.querySelector('[data-action="collapse"]').textContent = state.collapsed ? "+" : "–";
+      var body = panel.querySelector(".qiqiclaw-agent-body");
+      body.innerHTML = "";
+      if (!state.messages.length) {
+        addMessageNode(body, "assistant", "当前上下文：" + currentPath() + "\n可以直接说：列出当前目录、搜索 合同、列出处理器。");
+      }
+      state.messages.slice(-12).forEach(function (msg) {
+        addMessageNode(body, msg.role || "assistant", msg.role === "tool" ? renderResultContent(msg.content) : (msg.content || ""));
+      });
+      state.pending.forEach(function (call) {
+        var item = document.createElement("div");
+        item.className = "qiqiclaw-agent-approval";
+        item.innerHTML = '<strong>待确认：' + call.name + '</strong><pre></pre><div class="qiqiclaw-agent-approval-actions"><button type="button" data-decision="reject">拒绝</button><button type="button" data-decision="approve">执行</button></div>';
+        item.querySelector("pre").textContent = JSON.stringify(call.arguments || {}, null, 2);
+        item.querySelector('[data-decision="approve"]').addEventListener("click", function () {
+          resolvePending(call.id, true);
+        });
+        item.querySelector('[data-decision="reject"]').addEventListener("click", function () {
+          resolvePending(call.id, false);
+        });
+        body.appendChild(item);
+      });
+      if (state.busy) addMessageNode(body, "assistant", "处理中...");
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function buildGatewayPrompt(text) {
+      return [
+        "当前在 QiQiClaw 桌面文件模块中操作。",
+        "当前模块：" + currentModule(),
+        "当前路径：" + currentPath(),
+        "你可以使用 CLI/TUI 主 Agent 的完整能力。涉及当前桌面文件模块时，优先使用 filemod_ 前缀工具：filemod_vfs_list_dir、filemod_vfs_read_text、filemod_vfs_search、filemod_processors_list、filemod_processors_run、filemod_vfs_write_text、filemod_vfs_mkdir、filemod_vfs_delete、filemod_vfs_move、filemod_vfs_copy、filemod_vfs_rename。",
+        "写入、删除、移动、运行处理器等会改变文件模块状态的操作必须等待用户审批。",
+        "",
+        "用户任务：",
+        text
+      ].join("\n");
+    }
+
+    function ensureGateway() {
+      if (state.ws && (state.ws.readyState === 0 || state.ws.readyState === 1)) return;
+      var tk = token();
+      if (!tk) {
+        state.useGateway = false;
+        return;
+      }
+      try {
+        var proto = location.protocol === "https:" ? "wss:" : "ws:";
+        var ws = new WebSocket(proto + "//" + location.host + "/api/ws?token=" + encodeURIComponent(tk));
+        state.ws = ws;
+        ws.onopen = function () {
+          state.wsReady = true;
+          state.useGateway = true;
+          if (!state.sessionId) rpc("session.create", {});
+        };
+        ws.onclose = function () {
+          if (state.busy) {
+            state.busy = false;
+            state.messages.push({ role: "error", content: "Agent 连接已断开，请重新发送任务。" });
+            renderPanel();
+          }
+          state.wsReady = false;
+          state.useGateway = false;
+        };
+        ws.onerror = function () {
+          if (state.busy) {
+            state.busy = false;
+            state.messages.push({ role: "error", content: "Agent 连接异常，已切换为本地文件 MCP 兜底。" });
+            renderPanel();
+          }
+          state.wsReady = false;
+          state.useGateway = false;
+        };
+        ws.onmessage = function (event) {
+          var frame;
+          try { frame = JSON.parse(event.data); } catch (_) { return; }
+          if (frame.error) {
+            state.busy = false;
+            state.messages.push({ role: "error", content: frame.error.message || "Agent 请求失败" });
+            renderPanel();
+            return;
+          }
+          if (frame.id && frame.result && frame.result.session_id) {
+            state.sessionId = frame.result.session_id;
+            renderPanel();
+            return;
+          }
+          if (frame.method === "event") handleGatewayEvent(frame.params || {});
+        };
+      } catch (_) {
+        state.useGateway = false;
+      }
+    }
+
+    function waitForGatewayReady(timeoutMs) {
+      ensureGateway();
+      if (state.wsReady && state.sessionId) return Promise.resolve(true);
+      return new Promise(function (resolve) {
+        var start = Date.now();
+        var timer = setInterval(function () {
+          if (state.wsReady && state.sessionId) {
+            clearInterval(timer);
+            resolve(true);
+          } else if (Date.now() - start >= timeoutMs || !state.useGateway) {
+            clearInterval(timer);
+            resolve(false);
+          }
+        }, 50);
+      });
+    }
+
+    function updateLastAssistant(text, done) {
+      for (var i = state.messages.length - 1; i >= 0; i--) {
+        if (state.messages[i].role === "assistant" && state.messages[i].streaming) {
+          if (text || !done) state.messages[i].content = text;
+          state.messages[i].streaming = !done;
+          return;
+        }
+      }
+      state.messages.push({ role: "assistant", content: text, streaming: !done });
+    }
+
+    function handleGatewayEvent(params) {
+      var type = params.type || "";
+      var payload = params.payload || {};
+      if (type === "message.start") {
+        state.busy = true;
+        state.messages.push({ role: "assistant", content: "", streaming: true });
+      } else if (type === "message.delta") {
+        var current = "";
+        for (var i = state.messages.length - 1; i >= 0; i--) {
+          if (state.messages[i].role === "assistant" && state.messages[i].streaming) {
+            current = state.messages[i].content || "";
+            break;
+          }
+        }
+        updateLastAssistant(current + (payload.text || ""), false);
+      } else if (type === "message.complete") {
+        state.busy = false;
+        updateLastAssistant(payload.text || "", true);
+        if (payload.warning) {
+          state.messages.push({ role: "assistant", content: payload.warning });
+        }
+      } else if (type === "tool.start") {
+        state.messages.push({ role: "tool", content: "开始工具：" + (payload.name || payload.tool || "tool") + "\n" + JSON.stringify(payload.context || payload.input || {}, null, 2) });
+      } else if (type === "tool.complete") {
+        state.messages.push({ role: "tool", content: "完成工具：" + (payload.name || payload.tool || "tool") + "\n" + (payload.summary || payload.inline_diff || JSON.stringify(payload, null, 2)) });
+      } else if (type === "approval.request") {
+        state.busy = false;
+        state.pending.push({
+          id: payload.id || payload.request_id || ("approval-" + Date.now()),
+          name: payload.description || payload.command || "需要审批",
+          arguments: payload
+        });
+      } else if (type === "error") {
+        state.busy = false;
+        state.messages.push({ role: "error", content: payload.message || "Agent 请求失败" });
+      }
+      renderPanel();
+    }
+
+    function addMessageNode(parent, role, text) {
+      var node = document.createElement("div");
+      node.className = "qiqiclaw-agent-msg";
+      node.setAttribute("data-role", role);
+      node.textContent = text || "";
+      parent.appendChild(node);
+    }
+
+    async function sendAgent(textOrMessages, opts) {
+      if (state.busy) return;
+      opts = opts || {};
+      if (typeof textOrMessages === "string" && !opts.approved && !opts.rejected) {
+        var text = textOrMessages.trim();
+        if (!text) return;
+        var userMsg = { role: "user", content: text };
+        state.messages = state.messages.concat([userMsg]);
+        state.busy = true;
+        renderPanel();
+        if (await waitForGatewayReady(1200)) {
+          state.busy = true;
+          renderPanel();
+          state.pendingPromptId = rpc("prompt.submit", { session_id: state.sessionId, text: buildGatewayPrompt(text) }) || 0;
+          return;
+        }
+        textOrMessages = [];
+      }
+      var newMessages = Array.isArray(textOrMessages) ? textOrMessages : [];
+      state.busy = true;
+      state.messages = state.messages.concat(newMessages);
+      renderPanel();
+      try {
+        var payload = {
+          messages: state.messages,
+          context: { current_path: currentPath() },
+          auto_execute: false
+        };
+        if (opts.approved) payload.approved_mcp_call_ids = [opts.approved];
+        if (opts.rejected) payload.rejected_mcp_call_ids = [opts.rejected];
+        var resp = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-QiQi-Claw-Session-Token": token(),
+            "X-Session-Token": token()
+          },
+          body: JSON.stringify(payload)
+        });
+        var json = await resp.json();
+        if (!resp.ok) throw new Error(json && json.detail ? json.detail : resp.statusText);
+        var data = json.data || json;
+        state.messages = state.messages.concat(data.messages || []);
+        state.pending = data.pending_mcp_calls || [];
+      } catch (err) {
+        state.messages.push({ role: "assistant", content: "请求失败：" + (err && err.message ? err.message : String(err)) });
+      } finally {
+        state.busy = false;
+        renderPanel();
+      }
+    }
+
+    function resolvePending(callId, approved) {
+      var call = state.pending.find(function (item) { return item.id === callId; });
+      state.pending = state.pending.filter(function (item) { return item.id !== callId; });
+      state.messages.push({
+        role: "assistant",
+        content: (approved ? "已确认执行：" : "已拒绝执行：") + (call ? call.name : callId)
+      });
+      if (call && call.arguments && (call.arguments.command || call.arguments.description) && state.wsReady && state.sessionId) {
+        rpc("approval.respond", { session_id: state.sessionId, choice: approved ? "once" : "deny" });
+        renderPanel();
+        return;
+      }
+      sendAgent([], approved ? { approved: callId } : { rejected: callId });
+    }
+
+	    function boot() {
+	      try {
+	        if (!ENABLE_AGENT_PANEL) {
+	          var stalePanel = document.getElementById("qiqiclaw-agent-panel");
+	          if (stalePanel) stalePanel.remove();
+	          return;
+	        }
+	        ensurePanel();
+	        ensureGateway();
+        renderPanel();
+        var last = location.href;
+        setInterval(function () {
+          if (location.href !== last) {
+            last = location.href;
+            renderPanel();
+          }
+        }, 500);
+      } catch (_) {}
+    }
+
+    document.addEventListener("DOMContentLoaded", boot);
+  })();
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+</body>
+
+</html>

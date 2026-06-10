@@ -1,0 +1,4 @@
+provider: github
+owner: qiqiclaw
+repo: qiqiclaw-desktop
+updaterCacheDirName: qiqiclaw-desktop-updater

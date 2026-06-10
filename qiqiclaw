@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Project-local QiQi claw launcher."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def _main() -> None:
+    script_dir = Path(__file__).resolve().parent
+    venv_python = script_dir / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if venv_python.exists() and Path(sys.executable).resolve() != venv_python.resolve():
+        os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+    data_home = (
+        os.environ.get("QIQICLAW_HOME")
+        or str(Path.home() / ".qiqiclaw")
+    )
+
+    os.environ.setdefault("QIQICLAW_HOME", data_home)
+    os.chdir(script_dir)
+
+    from qiqiclaw_cli.main import main
+
+    main()
+
+
+if __name__ == "__main__":
+    _main()

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Foxel</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0e1116}
+  iframe{width:100%;height:100%;border:none;display:block}
+</style>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var nav = qs.get("nav") || "files";
+  if (!/^[a-z_-]+$/.test(nav)) nav = "files";
+  document.addEventListener("DOMContentLoaded", function () {
+    var f = document.getElementById("foxel-frame");
+    if (f) {
+      f.src = nav === "files"
+        ? "/foxel-spa/files/local"
+        : "/foxel-spa/?nav=" + encodeURIComponent(nav);
+    }
+  });
+})();
+</script>
+</head>
+<body>
+<iframe id="foxel-frame" src="/foxel-spa/" title="Foxel" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+</body>
+</html>

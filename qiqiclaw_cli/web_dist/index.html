@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-os="linux">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QiQi Claw Desktop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"
+      onerror="document.documentElement.classList.add('fonts-offline')">
+    <style>
+      /* Offline font fallback: if Google Fonts fails, use system fonts gracefully */
+      .fonts-offline body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif !important;
+      }
+      .fonts-offline code, .fonts-offline pre, .fonts-offline .log-viewer, .fonts-offline .config-editor {
+        font-family: "Cascadia Code", "Fira Code", "Consolas", "Liberation Mono", monospace !important;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-qiqiclaw-filemods-20260531.js"></script>
+    <script>
+    // 侧边栏平铺布局修复 — 注入高优先级 CSS + 持续监控
+    (function() {
+      var style = document.createElement('style');
+      style.id = 'sidebar-fix';
+      style.textContent = [
+        '#root .sidebar-overlay, #root .sidebar-overlay.visible { position: relative !important; left: auto !important; top: auto !important; width: 200px !important; min-width: 200px !important; max-width: 200px !important; height: 100% !important; z-index: 1 !important; box-shadow: none !important; flex-shrink: 0 !important; overflow: visible !important; }',
+        '#root .sidebar-trigger { display: none !important; }',
+        '#root .sidebar-overlay .nav-label, #root .sidebar-overlay .sidebar-logo-text, #root .sidebar-overlay .sidebar-user-info, #root .sidebar-overlay .nav-title, #root .sidebar-overlay .nav-sub-item, #root .sidebar-overlay .nav-add-btn { opacity: 1 !important; pointer-events: auto !important; }',
+        '#root .sidebar-overlay .sidebar-logo { padding: 0 14px !important; justify-content: flex-start !important; }',
+        '#root .sidebar-overlay .nav-item { justify-content: flex-start !important; padding: 7px 12px !important; margin: 1px 6px !important; }',
+        '#root .sidebar-overlay * { transition: none !important; animation: none !important; }',
+        '#root .app-layout { display: flex !important; flex-direction: row !important; }',
+        '#root .main-content { flex: 1 !important; min-width: 0 !important; margin-left: 0 !important; }'
+      ].join('\n');
+      // Insert after the React CSS to win specificity
+      var reactCSS = document.querySelector('link[href*="index-DsVqUEbj"]');
+      if (reactCSS) {
+        reactCSS.parentNode.insertBefore(style, reactCSS.nextSibling);
+      } else {
+        document.head.appendChild(style);
+      }
+      // Re-insert if removed by React
+      new MutationObserver(function() {
+        if (!document.getElementById('sidebar-fix')) {
+          document.head.appendChild(style);
+        }
+      }).observe(document.head, { childList: true });
+      // Also force inline styles as backup
+      setInterval(function() {
+        var sb = document.querySelector('#root .sidebar-overlay');
+        if (sb) {
+          var needFix = sb.style.position !== 'relative' || sb.style.width !== '200px';
+          if (needFix) {
+            sb.style.cssText = 'position:relative!important;left:auto!important;top:auto!important;width:200px!important;min-width:200px!important;height:100%!important;z-index:1!important;box-shadow:none!important;flex-shrink:0!important;overflow:visible!important';
+          }
+        }
+        var tr = document.querySelector('#root .sidebar-trigger');
+        if (tr) tr.style.cssText = 'display:none!important';
+        var mc = document.querySelector('#root .main-content');
+        if (mc) mc.style.setProperty('margin-left','0','important');
+        var al = document.querySelector('#root .app-layout');
+        if (al) { al.style.setProperty('display','flex','important'); al.style.setProperty('flex-direction','row','important'); }
+      }, 300);
+    })();
+    </script>
+    <script src="/qiqiclaw-chat-bridge.js"></script>
+    <script>
+    // FS proxy: 代理 iframe 的文件系统请求到 electronAPI
+    window.addEventListener('message', function(e) {
+      if (!e.data || !e.data.__fs_request) return;
+      var req = e.data;
+      var api = window.electronAPI && window.electronAPI.fs;
+      if (!api) { e.source.postMessage({ __fs_response: req.id, result: { error: 'electronAPI not ready' } }, '*'); return; }
+      var method = api[req.method];
+      if (!method) { e.source.postMessage({ __fs_response: req.id, result: { error: 'Unknown method: ' + req.method } }, '*'); return; }
+      Promise.resolve().then(function() { return method.apply(api, req.args || []); }).then(function(r) {
+        e.source.postMessage({ __fs_response: req.id, result: r }, '*');
+      }).catch(function(err) {
+        e.source.postMessage({ __fs_response: req.id, result: { error: err.message } }, '*');
+      });
+    });
+    </script>
+    <link rel="modulepreload" crossorigin href="/assets/markdown-B1zwypcg.js">
+    <link rel="modulepreload" crossorigin href="/assets/three-Xxkwl9_w.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DsVqUEbj.css">
+    <style>
+      /* 侧边栏：取消滑块浮动，改为固定平铺布局 */
+      .sidebar-overlay,.sidebar-overlay.visible{position:relative !important;left:auto !important;top:auto !important;width:200px !important;min-width:200px !important;max-width:200px !important;height:100% !important;z-index:1 !important;box-shadow:none !important;overflow:visible !important;flex-shrink:0 !important}
+      .sidebar-overlay .nav-label,.sidebar-overlay .sidebar-logo-text,.sidebar-overlay .sidebar-user-info,.sidebar-overlay .nav-title,.sidebar-overlay .nav-sub-item,.sidebar-overlay .nav-add-btn{opacity:1 !important;pointer-events:auto !important}
+      .sidebar-overlay .sidebar-logo{padding:0 14px !important;justify-content:flex-start !important}
+      .sidebar-overlay .nav-item{justify-content:flex-start !important;padding:7px 12px !important;margin:1px 6px !important}
+      .sidebar-trigger{display:none !important}
+      .sidebar-overlay *{transition:none !important;animation:none !important;opacity:1 !important}
+      .main-content{margin-left:0 !important}
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
