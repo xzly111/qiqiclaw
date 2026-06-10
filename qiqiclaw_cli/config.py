@@ -1,6 +1,11 @@
 """
 Configuration management for QiQiClaw.
 
+NOTE (architecture): this module has diverged from hermes_cli/config.py
+(~2.5k lines of difference). They are NOT copies. New shared logic should be
+pushed DOWN into hermes_cli (the backend base depended on by 662 files), not
+duplicated here. See ARCHITECTURE.md.
+
 Config files are stored in ~/.qiqiclaw/ for easy access:
 - ~/.qiqiclaw/config.yaml  - All settings (model, toolsets, terminal, etc.)
 - ~/.qiqiclaw/.env         - API keys and secrets

@@ -1,6 +1,10 @@
 """
 Multi-provider authentication system for QiQiClaw.
 
+NOTE (architecture): diverged from hermes_cli/auth.py (~4.1k lines of
+difference) — NOT a copy. Push shared logic DOWN into hermes_cli rather than
+duplicating here. See ARCHITECTURE.md.
+
 Supports OAuth device code flows (Nous Portal, future: OpenAI Codex) and
 traditional API key providers (OpenRouter, custom endpoints). Auth state
 is persisted in ~/.qiqiclaw/auth.json with cross-process file locking.

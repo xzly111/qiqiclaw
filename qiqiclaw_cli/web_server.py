@@ -1,6 +1,10 @@
 """
 QiQiClaw — Web UI server.
 
+NOTE (architecture): diverged from hermes_cli/web_server.py (~7.6k lines of
+difference) — NOT a copy. This is the highest-divergence pair; converge only
+after the desktop/dashboard API contract is aligned. See ARCHITECTURE.md.
+
 Provides a FastAPI backend serving the Vite/React frontend and REST API
 endpoints for managing configuration, environment variables, and sessions.
 
