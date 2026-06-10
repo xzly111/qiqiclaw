@@ -273,3 +273,87 @@ def dry_run_execute_fn(
     suffix = f" ({'; '.join(bits)})" if bits else ""
     return f"[orchestration dry-run]{suffix}: {prompt}"
 
+
+def _parse_models_arg(raw: Optional[str]) -> list:
+    """Parse --models "X,Y,provider:Z" into ModelSpec-compatible dicts.
+
+    Each comma-separated entry is either "model" or "provider:model".
+    """
+    if not raw:
+        return []
+    specs = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" in item:
+            provider, model = item.split(":", 1)
+            specs.append({"model": model.strip() or None, "provider": provider.strip() or None})
+        else:
+            specs.append({"model": item})
+    return specs
+
+
+def _parse_assignments_arg(raw: Optional[str]) -> dict:
+    """Parse --assign "decide=strong,execute=fast" into {role: model}."""
+    if not raw:
+        return {}
+    out = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            role, model = pair.split("=", 1)
+            if role.strip() and model.strip():
+                out[role.strip()] = model.strip()
+    return out
+
+
+def run_cli(args) -> int:
+    """CLI entry point for `qiqiclaw orchestrate`."""
+    import json as _json
+
+    task = " ".join(getattr(args, "task", []) or []).strip()
+    if not task:
+        print("error: task is required", file=__import__("sys").stderr)
+        return 1
+
+    models = _parse_models_arg(getattr(args, "models", None))
+    assignments = _parse_assignments_arg(getattr(args, "assign", None))
+    mode = getattr(args, "mode", None)
+    if not mode:
+        mode = "ensemble" if models else "single"
+
+    execute_fn = dry_run_execute_fn if getattr(args, "dry_run", False) else None
+    ensemble_fn = None
+    if getattr(args, "dry_run", False) and mode == "ensemble":
+        # Deterministic ensemble stub for dry-run topology checks.
+        def ensemble_fn(state):  # noqa: ANN001
+            specs = state.get("models") or []
+            cands = [
+                {"model": (m.get("model") if isinstance(m, dict) else m),
+                 "summary": f"[dry] {state['task']}", "status": "completed"}
+                for m in specs
+            ]
+            return {"response": f"[orchestration dry-run ensemble of {len(specs)}]: {state['task']}",
+                    "candidates": cands}
+
+    state = invoke_orchestration(
+        task,
+        mode=mode,
+        models=models,
+        model_assignments=assignments,
+        provider=getattr(args, "provider", None),
+        toolsets=(getattr(args, "toolsets", None) or "").split(",") if getattr(args, "toolsets", None) else None,
+        max_steps=getattr(args, "max_steps", 1),
+        execute_fn=execute_fn,
+        ensemble_fn=ensemble_fn,
+    )
+
+    if getattr(args, "json", False):
+        print(_json.dumps(state, ensure_ascii=False, sort_keys=True, default=str))
+    elif state.get("status") == "done":
+        print(state.get("final", ""))
+    else:
+        print(state.get("error", "orchestration failed"), file=__import__("sys").stderr)
+    return 0 if state.get("status") == "done" else 1
+

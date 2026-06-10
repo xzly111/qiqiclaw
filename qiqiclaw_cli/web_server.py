@@ -495,6 +495,17 @@ class LangGraphRunRequest(BaseModel):
     dry_run: bool = True
 
 
+class OrchestrateRunRequest(BaseModel):
+    task: str
+    mode: Optional[str] = None              # "single" | "ensemble"
+    models: Optional[Any] = None            # list of "model" or "provider:model" or dicts
+    model_assignments: Optional[Dict[str, str]] = None
+    provider: Optional[str] = None
+    toolsets: Optional[Any] = None
+    max_steps: int = 1
+    dry_run: bool = True
+
+
 _AUDIO_MIME_EXTENSIONS: Dict[str, str] = {
     "audio/aac": ".aac",
     "audio/flac": ".flac",
@@ -1133,6 +1144,98 @@ async def run_langgraph_workflow(body: LangGraphRunRequest):
         "workflow": {
             "nodes": ["qiqiclaw"],
             "edges": [["START", "qiqiclaw"], ["qiqiclaw", "END"]],
+        },
+    }
+
+
+def _normalize_orchestrate_models(models: Any) -> list:
+    """Normalize the request's models field into ModelSpec-compatible dicts.
+
+    Accepts a list of strings ("model" / "provider:model") or dicts, or a
+    comma-separated string.
+    """
+    if not models:
+        return []
+    if isinstance(models, str):
+        from qiqiclaw_cli.orchestration_graph import _parse_models_arg
+        return _parse_models_arg(models)
+    out = []
+    for m in models:
+        if isinstance(m, dict):
+            out.append(m)
+        elif isinstance(m, str):
+            if ":" in m:
+                provider, model = m.split(":", 1)
+                out.append({"model": model.strip() or None, "provider": provider.strip() or None})
+            else:
+                out.append({"model": m.strip()})
+    return out
+
+
+@app.post("/api/orchestrate")
+async def run_orchestration(body: OrchestrateRunRequest):
+    """Run the multi-node QiQiClaw orchestration graph through the REST API.
+
+    QiQiClaw is the decision-maker; LangGraph orchestrates decide/execute/
+    aggregate with optional multi-model ensemble. Off the main event loop via
+    asyncio.to_thread so a long agent run never blocks the server.
+    """
+    try:
+        from qiqiclaw_cli import orchestration_graph as og
+
+        models = _normalize_orchestrate_models(body.models)
+        mode = body.mode or ("ensemble" if models else "single")
+        toolsets = (
+            body.toolsets.split(",") if isinstance(body.toolsets, str) and body.toolsets
+            else (body.toolsets if isinstance(body.toolsets, list) else None)
+        )
+
+        execute_fn = og.dry_run_execute_fn if body.dry_run else None
+        ensemble_fn = None
+        if body.dry_run and mode == "ensemble":
+            def ensemble_fn(state):  # noqa: ANN001
+                specs = state.get("models") or []
+                cands = [
+                    {"model": (m.get("model") if isinstance(m, dict) else m),
+                     "summary": f"[dry] {state['task']}", "status": "completed"}
+                    for m in specs
+                ]
+                return {
+                    "response": f"[orchestration dry-run ensemble of {len(specs)}]: {state['task']}",
+                    "candidates": cands,
+                }
+
+        state = await asyncio.to_thread(
+            lambda: og.invoke_orchestration(
+                body.task,
+                mode=mode,
+                models=models,
+                model_assignments=body.model_assignments or {},
+                provider=body.provider or None,
+                toolsets=toolsets,
+                max_steps=body.max_steps,
+                execute_fn=execute_fn,
+                ensemble_fn=ensemble_fn,
+            )
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        _log.exception("POST /api/orchestrate failed")
+        raise HTTPException(status_code=500, detail=str(exc) or "Orchestration failed")
+
+    return {
+        "ok": state.get("status") == "done",
+        "dry_run": bool(body.dry_run),
+        "mode": mode,
+        "state": state,
+        "workflow": {
+            "nodes": ["decide", "execute", "aggregate"],
+            "edges": [
+                ["START", "decide"], ["decide", "execute"], ["decide", "END"],
+                ["execute", "aggregate"], ["execute", "END"],
+                ["aggregate", "decide"], ["aggregate", "END"],
+            ],
         },
     }
 

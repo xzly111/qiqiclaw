@@ -75,3 +75,49 @@ def test_qiqiclaw_audio_transcribe_endpoint_uses_transcription_tool(monkeypatch)
         "provider": "test",
         "transcript": "你好 QiQiClaw",
     }
+
+
+def test_orchestrate_endpoint_single_dry_run():
+    response = _client().post(
+        "/api/orchestrate",
+        json={
+            "task": "smoke test orchestration",
+            "mode": "single",
+            "dry_run": True,
+            "model_assignments": {"execute": "fast-model"},
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["mode"] == "single"
+    assert payload["dry_run"] is True
+    assert payload["state"]["status"] == "done"
+    assert "model=fast-model" in payload["state"]["final"]
+    assert payload["workflow"]["nodes"] == ["decide", "execute", "aggregate"]
+
+
+def test_orchestrate_endpoint_ensemble_dry_run():
+    response = _client().post(
+        "/api/orchestrate",
+        json={
+            "task": "hard task",
+            "models": ["gpt-4", "openrouter:claude-3"],
+            "dry_run": True,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["mode"] == "ensemble"
+    assert len(payload["state"]["candidates"]) == 2
+    assert "ensemble of 2" in payload["state"]["final"]
+
+
+def test_orchestrate_endpoint_requires_auth():
+    # Without the session header the route must reject (401).
+    from qiqiclaw_cli.web_server import app
+    unauth = TestClient(app)
+    response = unauth.post("/api/orchestrate", json={"task": "x", "dry_run": True})
+    assert response.status_code == 401
+

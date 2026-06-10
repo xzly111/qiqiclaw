@@ -8240,6 +8240,13 @@ def cmd_langgraph(args):
     sys.exit(run_cli(args))
 
 
+def cmd_orchestrate(args):
+    """Run the multi-node QiQiClaw orchestration graph (decide/execute/aggregate)."""
+    from qiqiclaw_cli.orchestration_graph import run_cli
+
+    sys.exit(run_cli(args))
+
+
 def main():
     """Main entry point for QiQiClaw CLI."""
     from qiqiclaw_cli._parser import build_top_level_parser
@@ -10337,6 +10344,50 @@ Examples:
     langgraph_parser.set_defaults(func=cmd_langgraph)
 
     # =========================================================================
+    # orchestrate command — multi-node orchestration graph + multi-model
+    # =========================================================================
+    orchestrate_parser = subparsers.add_parser(
+        "orchestrate",
+        help="Run a multi-node QiQiClaw orchestration graph (decide/execute/aggregate)",
+        description=(
+            "QiQiClaw as decision-maker, LangGraph as orchestrator. Supports "
+            "single-model execution, multi-model ensemble (judge/vote selection), "
+            "and per-role model assignment. Each node runs a full AIAgent."
+        ),
+    )
+    orchestrate_parser.add_argument("task", nargs="+", help="Task to orchestrate")
+    orchestrate_parser.add_argument(
+        "--mode",
+        choices=["single", "ensemble"],
+        default=None,
+        help="Force single-model or multi-model ensemble (default: ensemble if --models given, else single)",
+    )
+    orchestrate_parser.add_argument(
+        "--models",
+        default=None,
+        help='Ensemble members, comma-separated. Each is "model" or "provider:model". e.g. "gpt-4,openrouter:claude-3"',
+    )
+    orchestrate_parser.add_argument(
+        "--assign",
+        default=None,
+        help='Per-role model assignment, comma-separated "role=model". e.g. "decide=strong,execute=fast"',
+    )
+    orchestrate_parser.add_argument("--provider", default=None, help="Provider override")
+    orchestrate_parser.add_argument(
+        "-t", "--toolsets", default=None, help="Comma-separated toolsets for execution nodes"
+    )
+    orchestrate_parser.add_argument(
+        "--max-steps", type=int, default=1, dest="max_steps",
+        help="Max decide->execute->aggregate iterations (default: 1)",
+    )
+    orchestrate_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Run the graph with deterministic local executors instead of calling models",
+    )
+    orchestrate_parser.add_argument("--json", action="store_true", help="Print final state as JSON")
+    orchestrate_parser.set_defaults(func=cmd_orchestrate)
+
+    # =========================================================================
     # completion command
     # =========================================================================
     completion_parser = subparsers.add_parser(
@@ -10541,7 +10592,7 @@ Examples:
     # trigger consent prompts for hooks the user is still inspecting.
     # Groups with mixed admin/CRUD vs. agent-running entries narrow via
     # the nested subcommand (dest varies by parser).
-    _AGENT_COMMANDS = {None, "chat", "acp", "rl", "langgraph"}
+    _AGENT_COMMANDS = {None, "chat", "acp", "rl", "langgraph", "orchestrate"}
     _AGENT_SUBCOMMANDS = {
         "cron":    ("cron_command",    {"run", "tick"}),
         "gateway": ("gateway_command", {"run"}),
