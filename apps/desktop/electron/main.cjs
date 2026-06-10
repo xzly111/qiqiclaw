@@ -1738,6 +1738,7 @@ async function applyUpdatesPosixInApp() {
     }
   }
   if (desktopChildPids.length) {
+    env.QIQICLAW_DESKTOP_CHILD_PID = desktopChildPids.join(',')
     env.HERMES_DESKTOP_CHILD_PID = desktopChildPids.join(',')
   }
 
@@ -4025,7 +4026,8 @@ async function resolveRemoteBackend(profile) {
   if (rawEnvUrl) {
     if (!rawEnvToken) {
       throw new Error(
-        'HERMES_DESKTOP_REMOTE_URL is set but HERMES_DESKTOP_REMOTE_TOKEN is not. ' +
+        'QIQICLAW_DESKTOP_REMOTE_URL (or HERMES_DESKTOP_REMOTE_URL) is set but ' +
+          'QIQICLAW_DESKTOP_REMOTE_TOKEN (or HERMES_DESKTOP_REMOTE_TOKEN) is not. ' +
           'Both must be provided to connect to a remote QiQiClaw backend.'
       )
     }
@@ -4377,6 +4379,7 @@ async function spawnPoolBackend(profile, entry) {
       HERMES_DASHBOARD_SESSION_TOKEN: token,
       // Marks this dashboard backend as desktop-spawned so it runs the cron
       // scheduler tick loop (the gateway isn't running under the app).
+      QIQICLAW_DESKTOP: '1',
       HERMES_DESKTOP: '1',
       HERMES_WEB_DIST: webDist
     },
@@ -4521,6 +4524,7 @@ async function startHermes() {
         HERMES_DASHBOARD_SESSION_TOKEN: token,
         // Marks this dashboard backend as desktop-spawned so it runs the cron
         // scheduler tick loop (the gateway isn't running under the app).
+        QIQICLAW_DESKTOP: '1',
         HERMES_DESKTOP: '1',
         HERMES_WEB_DIST: webDist
       },

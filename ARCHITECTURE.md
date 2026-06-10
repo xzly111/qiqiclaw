@@ -97,8 +97,8 @@
 
 | 契约项 | 值 | 定义位置 |
 |--------|-----|---------|
-| 后端根目录 | `HERMES_DESKTOP_HERMES_ROOT` | launcher → main.cjs:2024 |
-| Python 解释器 | `HERMES_DESKTOP_PYTHON` | launcher → main.cjs:1014 |
+| 后端根目录 | `QIQICLAW_DESKTOP_HERMES_ROOT`（fallback `HERMES_DESKTOP_HERMES_ROOT`） | main.cjs:2024 |
+| Python 解释器 | `QIQICLAW_DESKTOP_PYTHON`（fallback） | main.cjs:1014 |
 | 数据目录 | `HERMES_HOME`（覆盖 get_hermes_home 默认值） | launcher |
 | Gateway 端口下限 | `9120` (PORT_FLOOR) | main.cjs:94 |
 | Gateway HTTP | `http://127.0.0.1:<port>` | main.cjs:4411 |
@@ -106,8 +106,8 @@
 | LangGraph API | `/api/langgraph/status`, `/api/langgraph/run` | src/app/langgraph/index.tsx:95,135 |
 
 > ⚠️ 桌面端是**已编译的 194M 二进制**，硬编码读取 18 个 `HERMES_DESKTOP_*`
-> 环境变量。任何对这些变量名的重命名都**必须同步重建该二进制**，否则桌面端
-> 无法启动。详见品牌替换工作（Stage E）。
+> 环境变量（Stage E 已改为 `QIQICLAW_DESKTOP_* || HERMES_DESKTOP_*` 双读）。
+> 重命名其 env 变量名需同步重建二进制——本次用 fallback 方案规避了强制重建。
 
 ---
 
