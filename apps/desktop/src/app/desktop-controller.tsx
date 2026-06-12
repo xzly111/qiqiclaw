@@ -29,7 +29,7 @@ import {
   unpinSession
 } from '../store/layout'
 import { $filePreviewTarget, $previewTarget, closeActiveRightRailTab } from '../store/preview'
-import { requestDesktopOnboarding } from '../store/onboarding'
+import { startManualOnboarding } from '../store/onboarding'
 import {
   $activeGatewayProfile,
   $freshSessionRequest,
@@ -156,6 +156,7 @@ export function DesktopController() {
   const busyRef = useRef(false)
   const creatingSessionRef = useRef(false)
   const refreshSessionsRequestRef = useRef(0)
+  const postInstallOnboardingRequestedRef = useRef(false)
 
   const gatewayState = useStore($gatewayState)
   const activeSessionId = useStore($activeSessionId)
@@ -713,7 +714,12 @@ export function DesktopController() {
     <>
       <DesktopInstallOverlay
         onCompleted={() => {
-          requestDesktopOnboarding('QiQiClaw installed. Configure an API provider to finish setup.')
+          if (postInstallOnboardingRequestedRef.current) {
+            return
+          }
+
+          postInstallOnboardingRequestedRef.current = true
+          startManualOnboarding('QiQiClaw installed. Configure an API provider to finish setup.')
         }}
       />
       {/* One PTY-backed terminal mounted forever; <TerminalSlot /> placeholders
