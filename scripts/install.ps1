@@ -1,11 +1,11 @@
 # ============================================================================
-# Hermes Agent Installer for Windows
+# QIQI-Claw Installer for Windows
 # ============================================================================
 # Installation script for Windows (PowerShell).
 # Uses uv for fast Python provisioning and package management.
 #
 # Usage:
-#   iex (irm https://hermes-agent.nousresearch.com/install.ps1)
+#   iex (irm https://raw.githubusercontent.com/xzly111/qiqiclaw/main/scripts/install.ps1)
 #
 # Or download and run with options:
 #   .\install.ps1 -NoVenv -SkipSetup
@@ -23,8 +23,10 @@ param(
     # exact ref.  Precedence: Commit > Tag > Branch.
     [string]$Commit = "",
     [string]$Tag = "",
-    [string]$HermesHome = $(if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }),
-    [string]$InstallDir = $(if ($env:HERMES_HOME) { "$env:HERMES_HOME\hermes-agent" } else { "$env:LOCALAPPDATA\hermes\hermes-agent" }),
+    [ValidateSet("github", "gitee", "cn", "china", "domestic")]
+    [string]$Source = $(if ($env:QIQICLAW_INSTALL_SOURCE) { $env:QIQICLAW_INSTALL_SOURCE } elseif ($env:HERMES_INSTALL_SOURCE) { $env:HERMES_INSTALL_SOURCE } else { "github" }),
+    [string]$QiQiClawHome = $(if ($env:QIQICLAW_HOME) { $env:QIQICLAW_HOME } elseif ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:USERPROFILE\.qiqiclaw" }),
+    [string]$InstallDir = $(if ($env:QIQICLAW_HOME) { "$env:QIQICLAW_HOME\qiqiclaw" } elseif ($env:HERMES_HOME) { "$env:HERMES_HOME\qiqiclaw" } else { "$env:USERPROFILE\.qiqiclaw\qiqiclaw" }),
 
     # --- Stage protocol (additive; default invocation behaves as before) ----
     # See the "Stage protocol" section near the bottom of the file for the
@@ -43,19 +45,19 @@ param(
 
     # --- Desktop GUI build (opt-in) ---
     # When set, install.ps1 includes Stage-Desktop in the manifest and
-    # builds apps/desktop into a launchable Hermes.exe.
+    # builds apps/desktop into a launchable qiqiclaw-desktop.exe.
     #
     # Why opt-in:
-    #   * Hermes-Setup.exe (the signed Tauri bootstrap installer) passes
+    #   * QiQiClaw-Setup.exe (the signed Tauri bootstrap installer) passes
     #     -IncludeDesktop so a user who installed via the GUI ends up
     #     with a launchable desktop binary.
     #   * The Electron desktop's own bootstrap-runner.cjs runs install.ps1
-    #     from inside an already-launched Hermes.exe; if THAT recursively
-    #     built apps/desktop it would try to overwrite the live Hermes.exe
+    #     from inside an already-launched desktop exe; if THAT recursively
+    #     built apps/desktop it would try to overwrite the live exe
     #     on disk and fail. The recursive path omits the flag.
     #   * The canonical CLI one-liner (irm | iex) omits the flag too;
     #     terminal users don't need a desktop binary built for them, and
-    #     `hermes desktop` already builds on demand.
+    #     `QiQiClaw Desktop` already builds on demand.
     [switch]$IncludeDesktop
 )
 
@@ -92,10 +94,48 @@ try {
 # Configuration
 # ============================================================================
 
-$RepoUrlSsh = "git@github.com:NousResearch/hermes-agent.git"
-$RepoUrlHttps = "https://github.com/NousResearch/hermes-agent.git"
+$RepoUrlSsh = "git@github.com:xzly111/qiqiclaw.git"
+$RepoUrlHttps = "https://github.com/xzly111/qiqiclaw.git"
+$RawBaseUrl = "https://raw.githubusercontent.com/xzly111/qiqiclaw"
+$ArchiveBaseUrl = "https://github.com/xzly111/qiqiclaw/archive"
 $PythonVersion = "3.11"
 $NodeVersion = "22"
+$NodeDistBaseUrl = "https://nodejs.org/dist"
+$GitForWindowsBaseUrl = "https://github.com/git-for-windows/git/releases/download"
+
+function Initialize-InstallSource {
+    switch ($Source.ToLowerInvariant()) {
+        "github" {
+            $script:RepoUrlSsh = "git@github.com:xzly111/qiqiclaw.git"
+            $script:RepoUrlHttps = "https://github.com/xzly111/qiqiclaw.git"
+            $script:RawBaseUrl = "https://raw.githubusercontent.com/xzly111/qiqiclaw"
+            $script:ArchiveBaseUrl = "https://github.com/xzly111/qiqiclaw/archive"
+        }
+        { $_ -in @("gitee", "cn", "china", "domestic") } {
+            $script:RepoUrlSsh = "git@gitee.com:szd20020329/qiqiclaw.git"
+            $script:RepoUrlHttps = "https://gitee.com/szd20020329/qiqiclaw.git"
+            $script:RawBaseUrl = "https://gitee.com/szd20020329/qiqiclaw/raw"
+            $script:ArchiveBaseUrl = "https://gitee.com/szd20020329/qiqiclaw/repository/archive"
+            if (-not $env:PIP_INDEX_URL) { $env:PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+            if (-not $env:UV_INDEX_URL) { $env:UV_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+            if (-not $env:UV_DEFAULT_INDEX) { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+            if (-not $env:npm_config_registry) { $env:npm_config_registry = "https://registry.npmmirror.com" }
+            if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST) { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://npmmirror.com/mirrors/playwright" }
+            if (-not $env:ELECTRON_MIRROR) { $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/" }
+            if (-not $env:ELECTRON_BUILDER_BINARIES_MIRROR) { $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/" }
+            $script:NodeDistBaseUrl = "https://registry.npmmirror.com/-/binary/node"
+            $script:GitForWindowsBaseUrl = "https://registry.npmmirror.com/-/binary/git-for-windows"
+            $script:Source = "gitee"
+        }
+        default {
+            throw "Unsupported install source: $Source. Use github or gitee."
+        }
+    }
+    $env:QIQICLAW_INSTALL_SOURCE = $Source.ToLowerInvariant()
+    $env:HERMES_INSTALL_SOURCE = $Source.ToLowerInvariant()
+}
+
+Initialize-InstallSource
 
 # Stage-protocol version.  Bumped only for genuinely breaking changes to the
 # manifest schema, stage-name set semantics, or stdout JSON shape.  Adding a
@@ -158,7 +198,7 @@ function Get-WindowsArch {
 function Write-Banner {
     Write-Host ""
     Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
-    Write-Host "|             * Hermes Agent Installer                    |" -ForegroundColor Magenta
+    Write-Host "|             * QIQI-Claw Installer                    |" -ForegroundColor Magenta
     Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
     Write-Host "|  An open source AI agent by Nous Research.              |" -ForegroundColor Magenta
     Write-Host "+---------------------------------------------------------+" -ForegroundColor Magenta
@@ -245,10 +285,10 @@ function Find-SystemBrowser {
 
 function Write-BrowserEnv {
     param([string]$BrowserPath)
-    if (-not (Test-Path $HermesHome)) {
-        New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
+    if (-not (Test-Path $QiQiClawHome)) {
+        New-Item -ItemType Directory -Force -Path $QiQiClawHome | Out-Null
     }
-    $envFile = Join-Path $HermesHome ".env"
+    $envFile = Join-Path $QiQiClawHome ".env"
     if (-not (Test-Path $envFile)) {
         Set-Content -Path $envFile -Value "AGENT_BROWSER_EXECUTABLE_PATH=$BrowserPath" -Encoding UTF8
         return
@@ -267,7 +307,7 @@ function Install-AgentBrowser {
     }
 
     Write-Info "Installing agent-browser via npm -g --prefix..."
-    $prefixDir = Join-Path $HermesHome "node"
+    $prefixDir = Join-Path $QiQiClawHome "node"
     if (-not (Test-Path $prefixDir)) {
         New-Item -ItemType Directory -Path $prefixDir -Force | Out-Null
     }
@@ -319,11 +359,11 @@ function Install-AgentBrowser {
 # ============================================================================
 
 function Install-Uv {
-    # Hermes owns its own uv at $HermesHome\bin\uv.exe.  Always install there —
+    # QiQiClaw owns its own uv at $QiQiClawHome\bin\uv.exe.  Always install there —
     # no PATH probing, no conda guards, no multi-location resolution chains.
     # The runtime update path (hermes_cli/managed_uv.py) looks in the same
     # place, so install.ps1 and `hermes update` stay in sync.
-    $managedUv = Join-Path $HermesHome "bin\uv.exe"
+    $managedUv = Join-Path $QiQiClawHome "bin\uv.exe"
 
     if (Test-Path $managedUv) {
         $script:UvCmd = $managedUv
@@ -332,15 +372,22 @@ function Install-Uv {
         return $true
     }
 
-    Write-Info "Installing managed uv into $HermesHome\bin ..."
-    New-Item -ItemType Directory -Path (Join-Path $HermesHome "bin") -Force | Out-Null
+    Write-Info "Installing managed uv into $QiQiClawHome\bin ..."
+    New-Item -ItemType Directory -Path (Join-Path $QiQiClawHome "bin") -Force | Out-Null
+
+    if (($Source.ToLowerInvariant() -eq "gitee") -and (Install-UvFromPythonMirror -ManagedUv $managedUv)) {
+        $script:UvCmd = $managedUv
+        $version = & $managedUv --version
+        Write-Success "Managed uv installed from domestic PyPI mirror ($version)"
+        return $true
+    }
 
     # UV_INSTALL_DIR tells the astral installer to place the binary
-    # directly into $HermesHome\bin instead of ~/.local/bin.
+    # directly into $QiQiClawHome\bin instead of ~/.local/bin.
     $prevEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        $env:UV_INSTALL_DIR = Join-Path $HermesHome "bin"
+        $env:UV_INSTALL_DIR = Join-Path $QiQiClawHome "bin"
         powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 | Out-Null
         $ErrorActionPreference = $prevEAP
 
@@ -360,6 +407,47 @@ function Install-Uv {
         Write-Info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
         return $false
     }
+}
+
+function Install-UvFromPythonMirror {
+    param([string]$ManagedUv)
+
+    $pythonCandidates = @("py", "python")
+    $pythonCmd = $null
+    foreach ($candidate in $pythonCandidates) {
+        if (Get-Command $candidate -ErrorAction SilentlyContinue) {
+            $pythonCmd = $candidate
+            break
+        }
+    }
+
+    if (-not $pythonCmd) {
+        Write-Warn "Gitee source: Python not found for domestic uv bootstrap; falling back to uv official installer"
+        return $false
+    }
+
+    $bootstrapDir = Join-Path $QiQiClawHome "uv-bootstrap"
+    if (Test-Path $bootstrapDir) {
+        Remove-Item -Recurse -Force $bootstrapDir -ErrorAction SilentlyContinue
+    }
+
+    $pipIndex = if ($env:PIP_INDEX_URL) { $env:PIP_INDEX_URL } else { "https://pypi.tuna.tsinghua.edu.cn/simple" }
+    try {
+        & $pythonCmd -m venv $bootstrapDir 2>&1 | Out-Null
+        $bootstrapPython = Join-Path $bootstrapDir "Scripts\python.exe"
+        $bootstrapUv = Join-Path $bootstrapDir "Scripts\uv.exe"
+        if ((Test-Path $bootstrapPython) -and ((& $bootstrapPython -m pip install -i $pipIndex --upgrade pip uv 2>&1 | Out-String) -ne $null) -and (Test-Path $bootstrapUv)) {
+            Copy-Item -Force $bootstrapUv $ManagedUv
+            Remove-Item -Recurse -Force $bootstrapDir -ErrorAction SilentlyContinue
+            return $true
+        }
+    } catch {
+        Write-Warn "Gitee source: uv install from $pipIndex failed: $_"
+    }
+
+    Remove-Item -Recurse -Force $bootstrapDir -ErrorAction SilentlyContinue
+    Write-Warn "Gitee source: domestic uv bootstrap did not produce an executable; falling back to uv official installer"
+    return $false
 }
 
 # Refresh $env:Path from the User + Machine registry hives.  Stage drivers
@@ -397,7 +485,7 @@ function Resolve-UvCmd {
     }
 
     # Check the managed location first — this is where Install-Uv puts it.
-    $managedUv = Join-Path $HermesHome "bin\uv.exe"
+    $managedUv = Join-Path $QiQiClawHome "bin\uv.exe"
     if (Test-Path $managedUv) {
         $script:UvCmd = $managedUv
         return
@@ -536,7 +624,7 @@ function Install-Git {
     <#
     .SYNOPSIS
     Ensure Git (and Git Bash) are installed.  Git for Windows bundles bash.exe
-    which Hermes uses to run shell commands.
+    which QiQiClaw uses to run shell commands.
 
     Priority order (deliberately simple -- no winget, no registry, no system
     package manager):
@@ -549,19 +637,19 @@ function Install-Git {
 
     **Why PortableGit, not MinGit:**  MinGit is the minimal-automation
     distribution and ships ONLY ``git.exe`` -- no bash, no POSIX utilities.
-    Hermes needs ``bash.exe`` to run shell commands.  PortableGit is the
+    QiQiClaw needs ``bash.exe`` to run shell commands.  PortableGit is the
     full Git for Windows distribution without the installer UI; it ships
     ``git.exe`` + ``bash.exe`` + ``sh``, ``awk``, ``sed``, ``grep``, ``curl``,
     ``ssh``, etc. in ``usr\bin\``.
 
     We deliberately skip winget because it fails badly when the system Git
     install is in a half-installed state (partially registered, or uninstall-
-    blocked).  Owning the Hermes copy of Git ourselves is predictable and
+    blocked).  Owning the QiQiClaw copy of Git ourselves is predictable and
     recoverable: if it ever breaks, ``Remove-Item %LOCALAPPDATA%\hermes\git``
     and re-running this installer fully recovers.
 
     After install we locate ``bash.exe`` and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User scope) so Hermes can find it in a fresh
+    ``HERMES_GIT_BASH_PATH`` (User scope) so QiQiClaw can find it in a fresh
     shell without a second PATH refresh.
     #>
     Write-Info "Checking Git..."
@@ -573,10 +661,10 @@ function Install-Git {
         return $true
     }
 
-    # Download PortableGit into $HermesHome\git.  Always works as long as
+    # Download PortableGit into $QiQiClawHome\git.  Always works as long as
     # we can reach github.com -- no admin, no winget, no reliance on the
     # user's possibly-broken system Git install.
-    Write-Info "Git not found -- downloading PortableGit to $HermesHome\git\ ..."
+    Write-Info "Git not found -- downloading PortableGit to $QiQiClawHome\git\ ..."
     Write-Info "(no admin rights required; isolated from any system Git install)"
 
     try {
@@ -606,7 +694,7 @@ function Install-Git {
         $gitVerTag = "$gitVer.windows.1"
 
         if ($arch -eq "32-bit-mingit") {
-            Write-Warn "32-bit Windows detected -- PortableGit is 64-bit only.  Installing MinGit 32-bit as a last resort; bash-dependent Hermes features (terminal tool, agent-browser) will not work on this machine."
+            Write-Warn "32-bit Windows detected -- PortableGit is 64-bit only.  Installing MinGit 32-bit as a last resort; bash-dependent QiQiClaw features (terminal tool, agent-browser) will not work on this machine."
             $assetName    = "MinGit-$gitVer-32-bit.zip"
             $downloadIsZip = $true
         } elseif ($arch -eq "arm64") {
@@ -617,10 +705,10 @@ function Install-Git {
             $downloadIsZip = $false
         }
 
-        $downloadUrl = "https://github.com/git-for-windows/git/releases/download/$gitTag/$assetName"
+        $downloadUrl = "$($GitForWindowsBaseUrl.TrimEnd('/'))/$gitTag/$assetName"
         $downloadExt = if ($downloadIsZip) { "zip" } else { "7z.exe" }
         $tmpFile = "$env:TEMP\$assetName"
-        $gitDir = "$HermesHome\git"
+        $gitDir = "$QiQiClawHome\git"
 
         Write-Info "Downloading $assetName (Git for Windows $gitVerTag)..."
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpFile -UseBasicParsing
@@ -686,7 +774,7 @@ function Install-Git {
         Write-Err "Could not install portable Git: $_"
         Write-Info ""
         Write-Info "Fallback: install Git manually from https://git-scm.com/download/win"
-        Write-Info "then re-run this installer.  Hermes needs Git Bash on Windows to run"
+        Write-Info "then re-run this installer.  QiQiClaw needs Git Bash on Windows to run"
         Write-Info "shell commands (same as Claude Code and other coding agents)."
         return $false
     }
@@ -696,7 +784,7 @@ function Set-GitBashEnvVar {
     <#
     .SYNOPSIS
     Locate ``bash.exe`` from an already-installed Git and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User env scope) so Hermes can find it even before
+    ``HERMES_GIT_BASH_PATH`` (User env scope) so QiQiClaw can find it even before
     PATH propagation completes in a newly-spawned shell.
     #>
     $candidates = @()
@@ -707,10 +795,10 @@ function Set-GitBashEnvVar {
     # this with a system-Git-only installation anyway.
     #
     # Layouts:
-    #   PortableGit (our default): $HermesHome\git\bin\bash.exe
-    #   MinGit (32-bit fallback):  $HermesHome\git\usr\bin\bash.exe
-    $candidates += "$HermesHome\git\bin\bash.exe"       # PortableGit layout (primary)
-    $candidates += "$HermesHome\git\usr\bin\bash.exe"   # MinGit / PortableGit usr\bin fallback
+    #   PortableGit (our default): $QiQiClawHome\git\bin\bash.exe
+    #   MinGit (32-bit fallback):  $QiQiClawHome\git\usr\bin\bash.exe
+    $candidates += "$QiQiClawHome\git\bin\bash.exe"       # PortableGit layout (primary)
+    $candidates += "$QiQiClawHome\git\usr\bin\bash.exe"   # MinGit / PortableGit usr\bin fallback
 
     # git.exe on PATH can tell us where the install root is
     $gitCmd = Get-Command git -ErrorAction SilentlyContinue
@@ -740,7 +828,7 @@ function Set-GitBashEnvVar {
         }
     }
 
-    Write-Warn "Could not locate bash.exe -- Hermes may not find Git Bash."
+    Write-Warn "Could not locate bash.exe -- QiQiClaw may not find Git Bash."
     Write-Info "If needed, set HERMES_GIT_BASH_PATH manually to your bash.exe path."
 }
 
@@ -774,31 +862,31 @@ function Test-Node {
         Write-Warn "Node.js $version is too old for the desktop build (need ^20.19 or >=22.12)"
     }
 
-    # Prefer a Hermes-managed Node from a previous run over a too-old system one.
-    $managedNode = "$HermesHome\node\node.exe"
+    # Prefer a QiQiClaw-managed Node from a previous run over a too-old system one.
+    $managedNode = "$QiQiClawHome\node\node.exe"
     if ((Test-Path $managedNode) -and (Test-NodeVersionOk (& $managedNode --version))) {
         $version = & $managedNode --version
-        $env:Path = "$HermesHome\node;$env:Path"
-        Write-Success "Node.js $version found (Hermes-managed)"
+        $env:Path = "$QiQiClawHome\node;$env:Path"
+        Write-Success "Node.js $version found (QiQiClaw-managed)"
         $script:HasNode = $true
         return $true
     }
 
-    Write-Info "Installing Hermes-managed Node.js $NodeVersion LTS..."
+    Write-Info "Installing QiQiClaw-managed Node.js $NodeVersion LTS..."
 
     # Try the portable-zip path FIRST -- no UAC, no admin, no winget MSI.
     # winget install OpenJS.NodeJS.LTS triggers a system-wide MSI install
     # which prompts UAC (the dialog often appears minimized in the taskbar
     # and the install silently waits for consent, looking like a hang).
-    # The portable zip path drops node.exe + npm into $HermesHome\node\
+    # The portable zip path drops node.exe + npm into $QiQiClawHome\node\
     # which is user-scoped and identical to how Install-Git handles
     # PortableGit.  Same UX guarantee: works on locked-down enterprise
     # machines with no admin rights.
-    Write-Info "Downloading portable Node.js $NodeVersion to $HermesHome\node\ ..."
+    Write-Info "Downloading portable Node.js $NodeVersion to $QiQiClawHome\node\ ..."
     Write-Info "(no admin rights required; isolated from any system Node install)"
     try {
         $arch = Get-WindowsArch
-        $indexUrl = "https://nodejs.org/dist/latest-v${NodeVersion}.x/"
+        $indexUrl = "$($NodeDistBaseUrl.TrimEnd('/'))/latest-v${NodeVersion}.x/"
         $indexPage = Invoke-WebRequest -Uri $indexUrl -UseBasicParsing
         $zipName = ($indexPage.Content | Select-String -Pattern "node-v${NodeVersion}\.\d+\.\d+-win-${arch}\.zip" -AllMatches).Matches[0].Value
 
@@ -813,16 +901,16 @@ function Test-Node {
 
             $extractedDir = Get-ChildItem $tmpDir -Directory | Select-Object -First 1
             if ($extractedDir) {
-                if (Test-Path "$HermesHome\node") { Remove-Item -Recurse -Force "$HermesHome\node" }
-                Move-Item $extractedDir.FullName "$HermesHome\node"
+                if (Test-Path "$QiQiClawHome\node") { Remove-Item -Recurse -Force "$QiQiClawHome\node" }
+                Move-Item $extractedDir.FullName "$QiQiClawHome\node"
 
                 # Session PATH so the rest of this run sees node/npm.
-                $env:Path = "$HermesHome\node;$env:Path"
+                $env:Path = "$QiQiClawHome\node;$env:Path"
 
                 # Persist to User PATH so fresh shells (and future stages
                 # in cross-process driver mode) see it.  Matches the
                 # pattern Install-Git uses for PortableGit.
-                $nodeDir = "$HermesHome\node"
+                $nodeDir = "$QiQiClawHome\node"
                 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
                 $userPathItems = if ($userPath) { $userPath -split ";" } else { @() }
                 if ($userPathItems -notcontains $nodeDir) {
@@ -830,8 +918,8 @@ function Test-Node {
                     [Environment]::SetEnvironmentVariable("Path", ($userPathItems -join ";"), "User")
                 }
 
-                $version = & "$HermesHome\node\node.exe" --version
-                Write-Success "Node.js $version installed to $HermesHome\node\ (portable, user-scoped)"
+                $version = & "$QiQiClawHome\node\node.exe" --version
+                Write-Success "Node.js $version installed to $QiQiClawHome\node\ (portable, user-scoped)"
                 $script:HasNode = $true
 
                 Remove-Item -Force $tmpZip -ErrorAction SilentlyContinue
@@ -1172,7 +1260,7 @@ function Install-Repository {
                         if ($LASTEXITCODE -eq 0) {
                             git -c windows.appendAtomically=false stash drop $autostashRef 2>$null
                             Write-Warn "Local changes were restored on top of the updated codebase."
-                            Write-Warn "Review git diff / git status if Hermes behaves unexpectedly."
+                            Write-Warn "Review git diff / git status if QiQiClaw behaves unexpectedly."
                         } else {
                             Write-Err "Update succeeded, but restoring local changes failed. Your changes are still preserved in git stash."
                             Write-Info "Resolve manually with: git stash apply $autostashRef"
@@ -1252,20 +1340,20 @@ function Install-Repository {
             Write-Warn "Git clone failed -- downloading ZIP archive instead..."
             try {
                 # Pick the ZIP URL for the most-specific ref the caller asked
-                # for.  GitHub supports archive URLs for commits, tags, and
-                # branches; we honour Commit > Tag > Branch.
+                # for.  GitHub and Gitee both support archive URLs for commits,
+                # tags, and branches; we honour Commit > Tag > Branch.
                 if ($Commit) {
-                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/$Commit.zip"
+                    $zipUrl = "$ArchiveBaseUrl/$Commit.zip"
                     $zipLabel = $Commit
                 } elseif ($Tag) {
-                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/refs/tags/$Tag.zip"
+                    $zipUrl = "$ArchiveBaseUrl/$Tag.zip"
                     $zipLabel = $Tag
                 } else {
-                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/refs/heads/$Branch.zip"
+                    $zipUrl = "$ArchiveBaseUrl/$Branch.zip"
                     $zipLabel = $Branch
                 }
-                $zipPath = "$env:TEMP\hermes-agent-$zipLabel.zip"
-                $extractPath = "$env:TEMP\hermes-agent-extract"
+                $zipPath = "$env:TEMP\qiqiclaw-$zipLabel.zip"
+                $extractPath = "$env:TEMP\qiqiclaw-extract"
 
                 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
                 if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
@@ -1479,7 +1567,7 @@ try:
     specs = data['project']['optional-dependencies']['all']
     out = []
     for s in specs:
-        m = re.search(r'hermes-agent\[([\w-]+)\]', s)
+        m = re.search(r'(?:hermes-agent|qiqiclaw)\[([\w-]+)\]', s)
         if m: out.append(m.group(1))
     print(','.join(out))
 except Exception:
@@ -1517,7 +1605,7 @@ except Exception:
         }
     }
     if (-not $installed) {
-        throw "Failed to install hermes-agent package even with no extras. Inspect the uv pip install output above."
+        throw "Failed to install qiqiclaw package even with no extras. Inspect the uv pip install output above."
     }
 
     # Baseline-import gate. Even if a tier reported success above, the
@@ -1553,6 +1641,29 @@ except Exception:
             throw "Baseline imports failed in $InstallDir\venv (dotenv/openai/rich/prompt_toolkit). The install completed but dependencies are not in the venv. $hint"
         }
         Write-Success "Baseline imports verified in venv"
+
+        if ($IsWindows -or $env:OS -eq "Windows_NT") {
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            & $venvPython -c "import winpty" 2>&1 | Out-Null
+            $winptyExitCode = $LASTEXITCODE
+            $ErrorActionPreference = $prevEAP
+            if ($winptyExitCode -ne 0) {
+                Write-Warn "winpty not importable -- desktop embedded PTY will not work on native Windows."
+                Write-Info "Attempting targeted install of pywinpty wheel..."
+                & $UvCmd pip install --python "$venvPython" "pywinpty>=2.0.0,<3"
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to install pywinpty. Install Microsoft Visual C++ runtime/build tools or run manually: $UvCmd pip install --python `"$venvPython`" `"pywinpty>=2.0.0,<3`""
+                }
+                & $venvPython -c "import winpty" 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    throw "pywinpty installed but `import winpty` still fails in $InstallDir\venv."
+                }
+                Write-Success "winpty import verified for native Windows PTY"
+            } else {
+                Write-Success "winpty import verified for native Windows PTY"
+            }
+        }
     }
 
     # Verify the dashboard deps specifically -- they're the most common thing
@@ -1616,14 +1727,20 @@ function Set-PathVariable {
     }
     
     # Set HERMES_HOME so the Python code finds config/data in the right place.
-    # Only needed on Windows where we install to %LOCALAPPDATA%\hermes instead
-    # of the Unix default ~/.hermes
-    $currentHermesHome = [Environment]::GetEnvironmentVariable("HERMES_HOME", "User")
-    if (-not $currentHermesHome -or $currentHermesHome -ne $HermesHome) {
-        [Environment]::SetEnvironmentVariable("HERMES_HOME", $HermesHome, "User")
-        Write-Success "Set HERMES_HOME=$HermesHome"
+    # Pin both names: HERMES_HOME is still used by legacy modules, while
+    # QIQICLAW_HOME is the canonical QiQiClaw environment variable.
+    $currentQiQiClawHome = [Environment]::GetEnvironmentVariable("HERMES_HOME", "User")
+    if (-not $currentQiQiClawHome -or $currentQiQiClawHome -ne $QiQiClawHome) {
+        [Environment]::SetEnvironmentVariable("HERMES_HOME", $QiQiClawHome, "User")
+        Write-Success "Set HERMES_HOME=$QiQiClawHome"
     }
-    $env:HERMES_HOME = $HermesHome
+    $currentQiQiClawHome = [Environment]::GetEnvironmentVariable("QIQICLAW_HOME", "User")
+    if (-not $currentQiQiClawHome -or $currentQiQiClawHome -ne $QiQiClawHome) {
+        [Environment]::SetEnvironmentVariable("QIQICLAW_HOME", $QiQiClawHome, "User")
+        Write-Success "Set QIQICLAW_HOME=$QiQiClawHome"
+    }
+    $env:HERMES_HOME = $QiQiClawHome
+    $env:QIQICLAW_HOME = $QiQiClawHome
     
     # Update current session
     $env:Path = "$hermesBin;$env:Path"
@@ -1632,7 +1749,7 @@ function Set-PathVariable {
 }
 
 function Write-BootstrapMarker {
-    # Writes $InstallDir\.hermes-bootstrap-complete which tells the Hermes
+    # Writes $InstallDir\.hermes-bootstrap-complete which tells the QiQiClaw
     # desktop app (apps/desktop/electron/main.cjs) "install.ps1 ran
     # successfully — DON'T trigger the legacy first-launch bootstrap
     # runner."
@@ -1643,7 +1760,7 @@ function Write-BootstrapMarker {
     #   BOOTSTRAP_MARKER_SCHEMA_VERSION = 1 (line 187)
     #
     # Pinned commit/branch come from -Commit + -Branch flags (passed by
-    # Hermes-Setup.exe) or fall back to whatever git resolves in the
+    # QiQiClaw-Setup.exe) or fall back to whatever git resolves in the
     # checkout. The desktop validates schemaVersion + pinnedCommit
     # length but doesn't enforce that HEAD matches the pin (users
     # update via `hermes update` which moves HEAD legitimately).
@@ -1711,63 +1828,63 @@ function Write-BootstrapMarker {
 function Copy-ConfigTemplates {
     Write-Info "Setting up configuration files..."
     
-    # Create ~/.hermes directory structure
-    New-Item -ItemType Directory -Force -Path "$HermesHome\cron" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\sessions" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\logs" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\pairing" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\hooks" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\image_cache" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\audio_cache" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\memories" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\skills" | Out-Null
+    # Create QiQiClaw home directory structure
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\cron" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\sessions" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\logs" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\pairing" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\hooks" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\image_cache" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\audio_cache" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\memories" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$QiQiClawHome\skills" | Out-Null
 
     
     # Create .env
-    $envPath = "$HermesHome\.env"
+    $envPath = "$QiQiClawHome\.env"
     if (-not (Test-Path $envPath)) {
         $examplePath = "$InstallDir\.env.example"
         if (Test-Path $examplePath) {
             Copy-Item $examplePath $envPath
-            Write-Success "Created ~/.hermes/.env from template"
+            Write-Success "Created $QiQiClawHome\.env from template"
         } else {
             New-Item -ItemType File -Force -Path $envPath | Out-Null
-            Write-Success "Created ~/.hermes/.env"
+            Write-Success "Created $QiQiClawHome\.env"
         }
     } else {
-        Write-Info "~/.hermes/.env already exists, keeping it"
+        Write-Info "$QiQiClawHome\.env already exists, keeping it"
     }
     
     # Create config.yaml
-    $configPath = "$HermesHome\config.yaml"
+    $configPath = "$QiQiClawHome\config.yaml"
     if (-not (Test-Path $configPath)) {
         $examplePath = "$InstallDir\cli-config.yaml.example"
         if (Test-Path $examplePath) {
             Copy-Item $examplePath $configPath
-            Write-Success "Created ~/.hermes/config.yaml from template"
+            Write-Success "Created $QiQiClawHome\config.yaml from template"
         }
     } else {
-        Write-Info "~/.hermes/config.yaml already exists, keeping it"
+        Write-Info "$QiQiClawHome\config.yaml already exists, keeping it"
     }
     
     # Create SOUL.md if it doesn't exist (global persona file).
     # IMPORTANT: write without a BOM.  Windows PowerShell 5.1's
     # ``Set-Content -Encoding UTF8`` writes UTF-8 WITH a byte-order-mark
-    # (the default PS5 behaviour), and Hermes's prompt-injection scanner
+    # (the default PS5 behaviour), and QiQiClaw's prompt-injection scanner
     # flags the BOM as an invisible unicode character and refuses to
     # load the file.  PS7's ``-Encoding utf8NoBOM`` fixes that but we
     # don't control which PowerShell version the user has.  Go direct
     # to .NET with an explicit UTF8Encoding($false) -- BOM-free on every
     # PowerShell version.
-    $soulPath = "$HermesHome\SOUL.md"
+    $soulPath = "$QiQiClawHome\SOUL.md"
     if (-not (Test-Path $soulPath)) {
         $soulContent = @"
-# Hermes Agent Persona
+# QIQI-Claw Persona
 
 <!--
 This file defines the agent's personality and tone.
 The agent will embody whatever you write here.
-Edit this to customize how Hermes communicates with you.
+Edit this to customize how QiQiClaw communicates with you.
 
 Examples:
   - "You are a warm, playful assistant who uses kaomoji occasionally."
@@ -1780,25 +1897,25 @@ Delete the contents (or this file) to use the default personality.
 "@
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText($soulPath, $soulContent, $utf8NoBom)
-        Write-Success "Created ~/.hermes/SOUL.md (edit to customize personality)"
+        Write-Success "Created $QiQiClawHome\SOUL.md (edit to customize personality)"
     }
     
-    Write-Success "Configuration directory ready: ~/.hermes/"
+    Write-Success "Configuration directory ready: $QiQiClawHome\"
     
-    # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
-    Write-Info "Syncing bundled skills to ~/.hermes/skills/ ..."
+    # Seed bundled skills into $QiQiClawHome\skills\ (manifest-based, one-time per skill)
+    Write-Info "Syncing bundled skills to $QiQiClawHome\skills\ ..."
     $pythonExe = "$InstallDir\venv\Scripts\python.exe"
     if (Test-Path $pythonExe) {
         try {
             & $pythonExe "$InstallDir\tools\skills_sync.py" 2>$null
-            Write-Success "Skills synced to ~/.hermes/skills/"
+            Write-Success "Skills synced to $QiQiClawHome\skills\"
         } catch {
             # Fallback: simple directory copy
             $bundledSkills = "$InstallDir\skills"
-            $userSkills = "$HermesHome\skills"
+            $userSkills = "$QiQiClawHome\skills"
             if ((Test-Path $bundledSkills) -and -not (Get-ChildItem $userSkills -Exclude '.bundled_manifest' -ErrorAction SilentlyContinue)) {
                 Copy-Item -Path "$bundledSkills\*" -Destination $userSkills -Recurse -Force -ErrorAction SilentlyContinue
-                Write-Success "Skills copied to ~/.hermes/skills/"
+                Write-Success "Skills copied to $QiQiClawHome\skills\"
             }
         }
     }
@@ -1806,7 +1923,7 @@ Delete the contents (or this file) to use the default personality.
 
 function Install-NodeDeps {
     if (-not $HasNode) {
-        # Cross-process driver mode (Hermes-Setup.exe runs each -Stage NAME
+        # Cross-process driver mode (QiQiClaw-Setup.exe runs each -Stage NAME
         # in a fresh powershell.exe) means $script:HasNode set by Stage-Node
         # in the previous process isn't visible here. Re-probe rather than
         # trust the stale global — Stage-Node already ran successfully or
@@ -2034,7 +2151,7 @@ function Install-NodeDeps {
 # the per-user Electron download cache - most often a partial download resumed
 # into the same file, leaving concatenated junk - makes electron-builder's
 # `app-builder unpack-electron` extract a tree MISSING the electron binary, so
-# the final `electron` -> `Hermes` rename dies with ENOENT and every re-run
+# the final `electron` -> `QiQiClaw` rename dies with ENOENT and every re-run
 # repeats the broken extraction forever.
 #
 # We deliberately do not validate the zip ourselves: the common
@@ -2079,7 +2196,7 @@ function Clear-ElectronBuildCache {
 }
 
 function Install-Desktop {
-    # Build apps/desktop into a launchable Hermes.exe. Only called from
+    # Build apps/desktop into a launchable QiQiClaw desktop exe. Only called from
     # Stage-Desktop, which is itself only included in the manifest when
     # -IncludeDesktop was passed to install.ps1.
     #
@@ -2092,13 +2209,13 @@ function Install-Desktop {
     # produces the unpacked binary at apps/desktop/release/<os>-unpacked/.
     #
     # The Tauri bootstrap installer's launch_hermes_desktop command
-    # resolves apps/desktop/release/win-unpacked/Hermes.exe directly,
+    # resolves apps/desktop/release/win-unpacked/qiqiclaw-desktop.exe directly,
     # so an "unpacked" build (electron-builder --dir) is enough — we
     # don't need to produce an NSIS/MSI artifact here.
 
     # Always re-resolve Node here. Stages run in separate PowerShell processes,
     # so $script:HasNode from Stage-Node isn't visible; more importantly Test-Node
-    # enforces the build floor (^20.19 || >=22.12) and prepends the Hermes-managed
+    # enforces the build floor (^20.19 || >=22.12) and prepends the QiQiClaw-managed
     # Node to PATH, so the build never runs on a too-old system Node -- the cause
     # of the opaque "Build desktop app ... exit code 1" failure (Vite crashes on
     # old Node).
@@ -2187,7 +2304,7 @@ function Install-Desktop {
     # 2. Build apps/desktop. `npm run pack` runs:
     #      assert-root-install + write-build-stamp + stage-native-deps +
     #      tsc -b + vite build + electron-builder --dir
-    # The --dir mode produces an unpacked Hermes.exe in
+    # The --dir mode produces an unpacked desktop exe in
     # apps/desktop/release/win-unpacked/ without bundling NSIS/MSI;
     # we don't need a distributable installer artifact, just a
     # launchable binary the Tauri installer can spawn.
@@ -2197,15 +2314,15 @@ function Install-Desktop {
     # apps/desktop/package.json's build.win block, electron-builder never
     # invokes signtool and therefore never fetches/extracts winCodeSign
     # (whose macOS symlinks crash 7-Zip on non-admin Windows — a dead end we
-    # are NOT trying to work around). The Hermes icon + product name are
-    # stamped onto Hermes.exe by our own rcedit step (Set-DesktopExeIdentity)
+    # are NOT trying to work around). The QiQiClaw icon + product name are
+    # stamped onto the desktop exe by our own rcedit step (Set-DesktopExeIdentity)
     # AFTER this build, completely decoupled from electron-builder signing.
     #
     # WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD explicitly cleared as
     # belt-and-suspenders: if the user's environment has them set
     # for some other tool, electron-builder would still try to sign.
     Write-Info "Building desktop app (this takes 1-3 minutes)..."
-    $buildLog = "$env:TEMP\hermes-desktop-build-$(Get-Random).log"
+    $buildLog = "$env:TEMP\qiqiclaw-desktop-build-$(Get-Random).log"
     Push-Location $desktopDir
     $prevEAP = $ErrorActionPreference
     $prevCSCAuto = $env:CSC_IDENTITY_AUTO_DISCOVERY
@@ -2220,7 +2337,7 @@ function Install-Desktop {
         $code = $LASTEXITCODE
         if ($code -ne 0) {
             # A corrupt cached Electron zip makes `pack` fail with an opaque
-            # ENOENT on the final `electron` -> `Hermes` rename: app-builder's
+            # ENOENT on the final `electron` -> `QiQiClaw` rename: app-builder's
             # unpack-electron extracted a partial tree (missing the binary) from
             # the bad zip, and re-running reuses the poisoned cache forever.
             # Purge the cached download + any stale unpacked output and retry
@@ -2264,8 +2381,12 @@ function Install-Desktop {
     # 3. Sanity-check the produced binary. Probe both arches so this works
     # on x64 and arm64 build machines.
     $exeCandidates = @(
-        "$desktopDir\release\win-unpacked\Hermes.exe",
-        "$desktopDir\release\win-arm64-unpacked\Hermes.exe"
+        "$desktopDir\release\win-unpacked\qiqiclaw-desktop.exe",
+        "$desktopDir\release\win-arm64-unpacked\qiqiclaw-desktop.exe",
+        "$desktopDir\release\win-unpacked\QiQiClaw Desktop.exe",
+        "$desktopDir\release\win-arm64-unpacked\QiQiClaw Desktop.exe",
+        "$desktopDir\release\win-unpacked\QiQiClaw.exe",
+        "$desktopDir\release\win-arm64-unpacked\QiQiClaw.exe"
     )
     $found = $false
     $desktopExe = $null
@@ -2278,10 +2399,10 @@ function Install-Desktop {
         }
     }
     if (-not $found) {
-        throw "Desktop build completed but no Hermes.exe was found under $desktopDir\release\*-unpacked\"
+        throw "Desktop build completed but no QiQiClaw desktop exe was found under $desktopDir\release\*-unpacked\"
     }
 
-    # 3b. The Hermes icon + identity are stamped onto Hermes.exe by the
+    # 3b. The QiQiClaw icon + identity are stamped onto the desktop exe by the
     #     electron-builder `afterPack` hook (apps/desktop/scripts/after-pack.cjs)
     #     during `npm run pack` above — for every build, so the installer's
     #     --update rebuild stays branded too. No separate stamp step needed here.
@@ -2290,7 +2411,7 @@ function Install-Desktop {
     #     unfixable symlink crash; the afterPack hook runs rcedit directly.
 
     # 4. Create Start Menu + Desktop shortcuts pointing DIRECTLY at the packed
-    #    Hermes.exe. We deliberately do NOT point them at `hermes desktop`: that
+    #    desktop exe. We deliberately do NOT point them at `QiQiClaw Desktop`: that
     #    command rebuilds (npm install + electron-builder) on every launch,
     #    which would cost minutes each time. The packed exe is the consumer —
     #    launching it directly is instant, and updates flow through the
@@ -2321,8 +2442,8 @@ function New-DesktopShortcuts {
         }
 
         $targets = @(
-            (Join-Path ([Environment]::GetFolderPath('Programs')) 'Hermes.lnk'),
-            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Hermes.lnk')
+            (Join-Path ([Environment]::GetFolderPath('Programs')) 'QiQiClaw Desktop.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'QiQiClaw Desktop.lnk')
         )
 
         foreach ($lnkPath in $targets) {
@@ -2335,7 +2456,7 @@ function New-DesktopShortcuts {
                 $sc.TargetPath = $TargetExe
                 $sc.WorkingDirectory = $workDir
                 $sc.IconLocation = $iconLocation
-                $sc.Description = 'Hermes Agent'
+                $sc.Description = 'QIQI-Claw'
                 $sc.Save()
                 Write-Success "Shortcut created: $lnkPath"
             } catch {
@@ -2346,7 +2467,7 @@ function New-DesktopShortcuts {
         # Bust the Windows shell icon cache so the desktop/Start-Menu shortcut
         # repaints with the (possibly newly-stamped) icon instead of a stale
         # cached bitmap. Critical on the --update path: the exe was re-stamped
-        # with the Hermes icon, but without this the shortcut can keep drawing
+        # with the QiQiClaw icon, but without this the shortcut can keep drawing
         # the old Electron icon until the user manually refreshes / reboots.
         # Best-effort and silent — never fail the install over a cosmetic cache.
         try {
@@ -2360,21 +2481,9 @@ function New-DesktopShortcuts {
 }
 
 function Install-PlatformSdks {
-    # Ensure messaging-platform SDKs matching tokens the user added to
-    # ~/.hermes/.env are importable.  Two problems this solves:
-    #
-    # 1. The tiered `uv pip install` cascade above can fall through to a
-    #    lower tier when the first fails (common when RL git deps choke),
-    #    which silently skips some messaging SDKs from [messaging].
-    # 2. `uv` creates the venv without pip.  If a messaging SDK ends up
-    #    missing, the user can't `pip install python-telegram-bot` to
-    #    recover -- pip simply isn't in their venv.
-    #
-    # Strategy: bootstrap pip via `python -m ensurepip` (idempotent), then
-    # for each token set in .env, verify the matching SDK imports.  If not,
-    # run one targeted `pip install` as last-chance recovery.  Keeps fresh
-    # Windows installs from hitting silent "python-telegram-bot not installed"
-    # at runtime.
+    # Ensure the desktop can enable any supported messaging platform after the
+    # install completes. The curated [all] extra deliberately avoids eager
+    # messaging SDKs, so a fresh GUI install needs this explicit stage.
     if ($NoVenv) {
         Write-Info "Skipping platform-SDK verification (-NoVenv: no venv to bootstrap)"
         return
@@ -2386,51 +2495,34 @@ function Install-PlatformSdks {
         return
     }
 
-    $envPath = "$HermesHome\.env"
-    if (-not (Test-Path $envPath)) { return }
-    $envLines = Get-Content $envPath -ErrorAction SilentlyContinue
-
-    # Map: env var set in .env -> (import name, pip spec matching [messaging] extra).
-    # Specs mirror pyproject.toml to avoid version drift.
     $sdkMap = @(
-        @{ Var = "TELEGRAM_BOT_TOKEN"; Import = "telegram";  Spec = "python-telegram-bot[webhooks]>=22.6,<23" },
-        @{ Var = "DISCORD_BOT_TOKEN";  Import = "discord";   Spec = "discord.py[voice]>=2.7.1,<3" },
-        @{ Var = "SLACK_BOT_TOKEN";    Import = "slack_sdk"; Spec = "slack-sdk>=3.27.0,<4" },
-        @{ Var = "SLACK_APP_TOKEN";    Import = "slack_bolt";Spec = "slack-bolt>=1.18.0,<2" },
-        @{ Var = "WHATSAPP_ENABLED";   Import = "qrcode";    Spec = "qrcode>=7.0,<8" }
+        @{ Label = "Telegram"; Import = "telegram"; Spec = "python-telegram-bot[webhooks]==22.6" },
+        @{ Label = "Discord"; Import = "discord"; Spec = "discord.py[voice]==2.7.1" },
+        @{ Label = "Async HTTP runtime"; Import = "aiohttp"; Spec = "aiohttp==3.13.3" },
+        @{ Label = "Brotli compression runtime"; Import = "brotlicffi"; Spec = "brotlicffi==1.2.0.1" },
+        @{ Label = "Slack SDK"; Import = "slack_sdk"; Spec = "slack-sdk==3.40.1" },
+        @{ Label = "Slack Bolt"; Import = "slack_bolt"; Spec = "slack-bolt==1.27.0" },
+        @{ Label = "DingTalk stream"; Import = "dingtalk_stream"; Spec = "dingtalk-stream==0.24.3" },
+        @{ Label = "DingTalk OpenAPI"; Import = "alibabacloud_dingtalk"; Spec = "alibabacloud-dingtalk==2.2.42" },
+        @{ Label = "Feishu/Lark"; Import = "lark_oapi"; Spec = "lark-oapi==1.5.3" },
+        @{ Label = "WeCom callback XML safety"; Import = "defusedxml"; Spec = "defusedxml==0.7.1" },
+        @{ Label = "QR code pairing"; Import = "qrcode"; Spec = "qrcode==7.4.2" }
     )
 
-    # Which tokens are actually set (not placeholder)?
-    $needed = @()
-    foreach ($sdk in $sdkMap) {
-        $match = $envLines | Where-Object {
-            $_ -match ("^" + [regex]::Escape($sdk.Var) + "=.+") `
-            -and $_ -notmatch "your-token-here" `
-            -and $_ -notmatch "^\s*#"
-        }
-        if ($match) { $needed += $sdk }
-    }
-    if ($needed.Count -eq 0) { return }
-
     Write-Host ""
-    Write-Info "Verifying platform SDKs for tokens found in $envPath ..."
+    Write-Info "Verifying messaging platform SDKs ..."
 
-    # Verify each SDK's import without triggering side-effect imports.
-    # Quirk: PowerShell wraps non-zero-exit native stderr as a
-    # NativeCommandError that prints even with `2>$null` / `*> $null`
-    # unless we set $ErrorActionPreference to SilentlyContinue for the
-    # span.  Save + restore rather than nuking globally.
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
     try {
         $missing = @()
-        foreach ($sdk in $needed) {
+        foreach ($sdk in $sdkMap) {
             & $pythonExe -c "import $($sdk.Import)" 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 $missing += $sdk
-                Write-Warn "  $($sdk.Import) NOT importable (needed for $($sdk.Var))"
+                Write-Warn "  $($sdk.Label) NOT importable ($($sdk.Import))"
             } else {
-                Write-Success "  $($sdk.Import) OK"
+                Write-Success "  $($sdk.Label) OK"
             }
         }
     } finally {
@@ -2455,12 +2547,13 @@ function Install-PlatformSdks {
         }
 
         foreach ($sdk in $missing) {
-            Write-Info "  Installing $($sdk.Spec) ..."
+            Write-Info "  Installing $($sdk.Label): $($sdk.Spec) ..."
             & $pythonExe -m pip install $sdk.Spec 2>&1 | ForEach-Object { Write-Host "    $_" }
             if ($LASTEXITCODE -eq 0) {
-                Write-Success "  Installed $($sdk.Import)"
+                Write-Success "  Installed $($sdk.Label)"
             } else {
                 Write-Warn "  Failed to install $($sdk.Spec). Recover manually: $pythonExe -m pip install `"$($sdk.Spec)`""
+                throw "Failed to install required messaging SDK: $($sdk.Label)"
             }
         }
     } finally {
@@ -2478,7 +2571,7 @@ function Invoke-SetupWizard {
         # The setup wizard prompts for API keys, model choice, persona, etc.
         # Non-interactive callers (GUI installer) own that UX themselves; let
         # them drive it after install.ps1 returns.
-        Write-Info "Skipping setup wizard (non-interactive). Configure via the GUI or 'hermes setup'."
+        Write-Info "Skipping setup wizard (non-interactive). Configure via the GUI or 'qiqiclaw setup'."
         return
     }
 
@@ -2488,18 +2581,18 @@ function Invoke-SetupWizard {
 
     Push-Location $InstallDir
 
-    # Run hermes setup using the venv Python directly (no activation needed)
+    # Run qiqiclaw setup using the venv Python directly (no activation needed)
     if (-not $NoVenv) {
-        & ".\venv\Scripts\python.exe" -m hermes_cli.main setup
+        & ".\venv\Scripts\python.exe" -m qiqiclaw_cli.main setup
     } else {
-        python -m hermes_cli.main setup
+        python -m qiqiclaw_cli.main setup
     }
 
     Pop-Location
 }
 
 function Start-GatewayIfConfigured {
-    $envPath = "$HermesHome\.env"
+    $envPath = "$QiQiClawHome\.env"
     if (-not (Test-Path $envPath)) { return }
 
     $hasMessaging = $false
@@ -2518,7 +2611,7 @@ function Start-GatewayIfConfigured {
 
     # If WhatsApp is enabled but not yet paired, run foreground for QR scan
     $whatsappEnabled = $content | Where-Object { $_ -match "^WHATSAPP_ENABLED=true" }
-    $whatsappSession = "$HermesHome\whatsapp\session\creds.json"
+    $whatsappSession = "$QiQiClawHome\whatsapp\session\creds.json"
     if ($whatsappEnabled -and -not (Test-Path $whatsappSession)) {
         Write-Host ""
         Write-Info "WhatsApp is enabled but not yet paired."
@@ -2560,10 +2653,10 @@ function Start-GatewayIfConfigured {
     if ($response -eq "" -or $response -match "^[Yy]") {
         Write-Info "Starting gateway in background..."
         try {
-            $logFile = "$HermesHome\logs\gateway.log"
+            $logFile = "$QiQiClawHome\logs\gateway.log"
             Start-Process -FilePath $hermesCmd -ArgumentList "gateway" `
                 -RedirectStandardOutput $logFile `
-                -RedirectStandardError "$HermesHome\logs\gateway-error.log" `
+                -RedirectStandardError "$QiQiClawHome\logs\gateway-error.log" `
                 -WindowStyle Hidden
             Write-Success "Gateway started! Your bot is now online."
             Write-Info "Logs: $logFile"
@@ -2587,31 +2680,33 @@ function Write-Completion {
     Write-Host "* Your files:" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "   Config:    " -NoNewline -ForegroundColor Yellow
-    Write-Host "$HermesHome\config.yaml"
+    Write-Host "$QiQiClawHome\config.yaml"
     Write-Host "   API Keys:  " -NoNewline -ForegroundColor Yellow
-    Write-Host "$HermesHome\.env"
+    Write-Host "$QiQiClawHome\.env"
     Write-Host "   Data:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$HermesHome\cron\, sessions\, logs\"
+    Write-Host "$QiQiClawHome\cron\, sessions\, logs\"
     Write-Host "   Code:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$HermesHome\hermes-agent\"
+    Write-Host "$InstallDir\"
     Write-Host ""
     
     Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "* Commands:" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "   hermes              " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw            " -NoNewline -ForegroundColor Green
     Write-Host "Start chatting"
-    Write-Host "   hermes setup        " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw setup      " -NoNewline -ForegroundColor Green
     Write-Host "Configure API keys & settings"
-    Write-Host "   hermes config       " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw config     " -NoNewline -ForegroundColor Green
     Write-Host "View/edit configuration"
-    Write-Host "   hermes config edit  " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw config edit" -NoNewline -ForegroundColor Green
     Write-Host "Open config in editor"
-    Write-Host "   hermes gateway      " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw gateway    " -NoNewline -ForegroundColor Green
     Write-Host "Start messaging gateway (Telegram, Discord, etc.)"
-    Write-Host "   hermes update       " -NoNewline -ForegroundColor Green
+    Write-Host "   qiqiclaw update     " -NoNewline -ForegroundColor Green
     Write-Host "Update to latest version"
+    Write-Host "   hermes              " -NoNewline -ForegroundColor Green
+    Write-Host "Legacy compatibility alias"
     Write-Host ""
     
     Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
@@ -2712,7 +2807,7 @@ $InstallStages = @(
     @{ Name = "git";              Title = "Installing Git";                       Category = "prereqs";      NeedsUserInput = $false; Worker = "Stage-Git" }
     @{ Name = "node";             Title = "Detecting Node.js";                    Category = "prereqs";      NeedsUserInput = $false; Worker = "Stage-Node" }
     @{ Name = "system-packages";  Title = "Installing ripgrep and ffmpeg";        Category = "prereqs";      NeedsUserInput = $false; Worker = "Stage-SystemPackages" }
-    @{ Name = "repository";       Title = "Cloning Hermes repository";            Category = "install";      NeedsUserInput = $false; Worker = "Stage-Repository" }
+    @{ Name = "repository";       Title = "Cloning QiQiClaw repository";            Category = "install";      NeedsUserInput = $false; Worker = "Stage-Repository" }
     @{ Name = "venv";             Title = "Creating Python virtual environment";  Category = "install";      NeedsUserInput = $false; Worker = "Stage-Venv" }
     @{ Name = "dependencies";     Title = "Installing Python dependencies";       Category = "install";      NeedsUserInput = $false; Worker = "Stage-Dependencies" }
     @{ Name = "node-deps";        Title = "Installing Node.js dependencies";      Category = "install";      NeedsUserInput = $false; Worker = "Stage-NodeDeps" }
@@ -2720,11 +2815,11 @@ $InstallStages = @(
 if ($IncludeDesktop) {
     # Insert AFTER node-deps so workspace npm is already installed when
     # the desktop build runs. Inserted only when explicitly requested
-    # (Hermes-Setup.exe), never via the irm|iex CLI one-liner.
+    # (QiQiClaw-Setup.exe), never via the irm|iex CLI one-liner.
     $InstallStages += @{ Name = "desktop"; Title = "Building desktop app"; Category = "install"; NeedsUserInput = $false; Worker = "Stage-Desktop" }
 }
 $InstallStages += @(
-    @{ Name = "path";             Title = "Adding Hermes to PATH";                Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-Path" }
+    @{ Name = "path";             Title = "Adding QiQiClaw to PATH";                Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-Path" }
     @{ Name = "config-templates"; Title = "Writing configuration templates";      Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-ConfigTemplates" }
     @{ Name = "platform-sdks";    Title = "Installing messaging platform SDKs";   Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-PlatformSdks" }
     @{ Name = "bootstrap-marker"; Title = "Marking install complete";              Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-BootstrapMarker" }
@@ -3011,7 +3106,7 @@ try {
     Write-Err "Installation failed: $_"
     Write-Host ""
     Write-Info "If the error is unclear, try downloading and running the script directly:"
-    Write-Host "  Invoke-WebRequest -Uri 'https://hermes-agent.nousresearch.com/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
+    Write-Host "  Invoke-WebRequest -Uri '$RawBaseUrl/main/scripts/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
     Write-Host "  .\install.ps1" -ForegroundColor Yellow
     Write-Host ""
 }

@@ -206,6 +206,9 @@ def _run_agent(
     provider: Optional[str] = None,
     toolsets: object = None,
     use_config_toolsets: bool = True,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    api_mode: Optional[str] = None,
 ) -> str:
     """Build an AIAgent exactly like a normal CLI chat turn would, then
     run a single conversation.  Returns the final response string."""
@@ -275,8 +278,15 @@ def _run_agent(
     runtime = resolve_runtime_provider(
         requested=effective_provider,
         target_model=effective_model or None,
-        explicit_base_url=explicit_base_url_from_alias,
+        explicit_base_url=(base_url or explicit_base_url_from_alias),
+        explicit_api_key=api_key,
     )
+    if base_url:
+        runtime["base_url"] = base_url
+    if api_key:
+        runtime["api_key"] = api_key
+    if api_mode:
+        runtime["api_mode"] = api_mode
 
     # Pull in explicit toolsets when provided; otherwise use whatever the user
     # has enabled for "cli". sorted() gives stable ordering for config-derived

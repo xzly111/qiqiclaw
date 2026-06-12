@@ -29,7 +29,7 @@ Configuration in config.yaml::
           client_secret: "secret"               # confidential clients only
           scope: "read write"                   # default: server-provided
           redirect_port: 0                      # 0 = auto-pick free port
-          client_name: "My Custom Client"       # default: "Hermes Agent"
+          client_name: "My Custom Client"       # default: "QIQI-Claw"
 """
 
 import asyncio
@@ -376,7 +376,7 @@ def _make_callback_handler() -> tuple[type, dict]:
 
             body = (
                 "<html><body><h2>Authorization Successful</h2>"
-                "<p>You can close this tab and return to Hermes.</p></body></html>"
+                "<p>You can close this tab and return to QIQI-Claw.</p></body></html>"
             ) if code else (
                 "<html><body><h2>Authorization Failed</h2>"
                 f"<p>Error: {error or 'unknown'}</p></body></html>"
@@ -431,7 +431,7 @@ async def _redirect_handler(authorization_url: str) -> None:
             f"         ssh -N -L {_oauth_port}:127.0.0.1:{_oauth_port} <user>@<this-host>\n"
             f"       then open the URL above and let it redirect normally.\n"
             f"\n"
-            f"  See: https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh\n",
+            f"  See: https://github.com/xzly111/qiqiclaw#readme\n",
             file=sys.stderr,
         )
 
@@ -672,7 +672,7 @@ def _build_client_metadata(cfg: dict) -> "OAuthClientMetadata":
         raise ValueError(
             "_configure_callback_port() must be called before _build_client_metadata()"
         )
-    client_name = cfg.get("client_name", "Hermes Agent")
+    client_name = cfg.get("client_name", "QIQI-Claw")
     scope = cfg.get("scope")
     redirect_uri = f"http://127.0.0.1:{port}/callback"
 

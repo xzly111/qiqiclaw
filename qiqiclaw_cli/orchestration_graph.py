@@ -86,7 +86,16 @@ def _model_for_role(state: OrchestrationState, role: str) -> Optional[str]:
     """Resolve which model a node should use from model_assignments, falling
     back to the single `model` hint or None (provider default)."""
     assignments = state.get("model_assignments") or {}
-    return assignments.get(role) or assignments.get("default")
+    value = assignments.get(role) or assignments.get("default")
+    if isinstance(value, dict):
+        return value.get("model")
+    return value
+
+
+def _spec_for_role(state: OrchestrationState, role: str) -> dict:
+    assignments = state.get("model_assignments") or {}
+    value = assignments.get(role) or assignments.get("default")
+    return dict(value) if isinstance(value, dict) else {"model": value}
 
 
 def build_orchestration_graph(
@@ -107,6 +116,7 @@ def build_orchestration_graph(
 
     StateGraph, START, END = _load_langgraph(source_path, prefer_local=prefer_local_source)
     _execute = execute_fn or _default_execute_fn
+    _has_custom_execute = execute_fn is not None
 
     # ── decide node ──────────────────────────────────────────────────────
     def decide(state: OrchestrationState) -> OrchestrationState:
@@ -136,8 +146,22 @@ def build_orchestration_graph(
             if mode == "ensemble":
                 resp, candidates = _run_ensemble(state, ensemble_fn, toolsets)
             else:
-                model = _model_for_role(state, "execute")
-                resp = _execute(task, model, provider, toolsets)
+                spec = _spec_for_role(state, "execute")
+                model = spec.get("model")
+                role_provider = spec.get("provider") or provider
+                if not _has_custom_execute and (spec.get("base_url") or spec.get("api_key") or spec.get("api_mode")):
+                    from qiqiclaw_cli.langgraph_runner import qiqiclaw_oneshot_runner
+                    resp = qiqiclaw_oneshot_runner(
+                        task,
+                        model,
+                        role_provider,
+                        toolsets,
+                        base_url=spec.get("base_url"),
+                        api_key=spec.get("api_key"),
+                        api_mode=spec.get("api_mode"),
+                    )
+                else:
+                    resp = _execute(task, model, role_provider, toolsets)
                 candidates = [{"model": model, "summary": resp, "status": "completed"}]
         except Exception as exc:  # noqa: BLE001 - surface node failure into state
             logger.warning("orchestration execute node failed: %s", exc)
@@ -356,4 +380,3 @@ def run_cli(args) -> int:
     else:
         print(state.get("error", "orchestration failed"), file=__import__("sys").stderr)
     return 0 if state.get("status") == "done" else 1
-

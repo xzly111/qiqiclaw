@@ -50,7 +50,7 @@ export const en: Translations = {
       loadingSettings: 'Loading QiQiClaw settings',
       loadingSessions: 'Loading recent sessions',
       startingDesktopConnection: 'Starting desktop connection',
-      startingHermesDesktop: 'Starting QiQiClaw Desktop…'
+      startingQiQiClawDesktop: 'Starting QiQiClaw Desktop…'
     },
     errors: {
       backgroundExited: 'QiQiClaw background process exited.',
@@ -99,7 +99,7 @@ export const en: Translations = {
     backendOutOfDateTitle: 'Backend out of date',
     backendOutOfDateMessage:
       'Your QiQiClaw backend is older than this desktop build and may not work correctly. Update to align them.',
-    updateHermes: 'Update QiQiClaw',
+    updateQiQiClaw: 'Update QiQiClaw',
     updateReadyTitle: 'Update ready',
     updateReadyMessage: count => `${count} new change${count === 1 ? '' : 's'} available.`,
     seeWhatsNew: "See what's new",
@@ -246,8 +246,8 @@ export const en: Translations = {
     resetFailed: 'Reset failed',
     nav: {
       providers: 'Providers',
-      providerAccounts: 'Accounts',
-      providerApiKeys: 'API keys',
+      providerModels: 'Models',
+      providerCredentials: 'Providers',
       gateway: 'Gateway',
       apiKeys: 'Tools & Keys',
       keysTools: 'Tools',
@@ -483,16 +483,19 @@ export const en: Translations = {
       }
     },
     providers: {
-      connectAccount: 'Connect an account',
-      haveApiKey: 'Have an API key instead?',
-      intro:
-        'Sign in with a subscription — no API key to copy. QiQiClaw runs the browser sign-in for you, right here in the app.',
-      connected: 'Connected',
-      collapse: 'Collapse',
-      connectAnother: 'Connect another provider',
-      otherProviders: 'Other providers',
       noProviderKeys: 'No provider API keys available.',
-      loading: 'Loading providers...'
+      loading: 'Loading providers...',
+      credentialPoolTitle: 'Credential pool',
+      credentialPoolDesc:
+        'Rotating provider credentials used by QiQiClaw setup, chat model switching, auxiliary models, and orchestration. Entries are stored by the backend and shown here only as redacted summaries.',
+      credentialPoolLoading: 'Loading credential pool...',
+      credentialPoolEmpty: 'No pooled credentials configured.',
+      credentialPoolRedacted: 'redacted',
+      provider: 'Provider',
+      apiKey: 'API key',
+      label: 'Label',
+      add: 'Add',
+      requests: count => `${count} requests`
     },
     sessions: {
       loading: 'Loading archived sessions…',
@@ -662,7 +665,7 @@ export const en: Translations = {
     gatewayStopped: 'Messaging gateway stopped',
     hermesActiveSessions: (version, count) => `QiQiClaw ${version} · Active sessions ${count}`,
     restartMessaging: 'Restart messaging',
-    updateHermes: 'Update QiQiClaw',
+    updateQiQiClaw: 'Update QiQiClaw',
     actionRunning: 'running',
     actionDone: 'done',
     actionFailed: 'failed',
@@ -711,6 +714,8 @@ export const en: Translations = {
     credentialsSet: 'Credentials set',
     needsSetup: 'Needs setup',
     gatewayStopped: 'Messaging gateway stopped',
+    gatewayRestartFailed: 'Failed to restart messaging gateway',
+    gatewayRestartStarted: 'Messaging gateway restart started',
     getCredentials: 'Get your credentials',
     openSetupGuide: 'Open setup guide',
     required: 'Required',

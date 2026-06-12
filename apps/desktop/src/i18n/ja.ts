@@ -50,7 +50,7 @@ export const ja = defineLocale({
       loadingSettings: 'QiQiClaw の設定を読み込み中',
       loadingSessions: '最近のセッションを読み込み中',
       startingDesktopConnection: 'デスクトップ接続を開始中',
-      startingHermesDesktop: 'QiQiClaw Desktop を起動中…'
+      startingQiQiClawDesktop: 'QiQiClaw Desktop を起動中…'
     },
     errors: {
       backgroundExited: 'QiQiClaw バックグラウンドプロセスが終了しました。',
@@ -100,7 +100,7 @@ export const ja = defineLocale({
     backendOutOfDateTitle: 'バックエンドが古いです',
     backendOutOfDateMessage:
       'QiQiClaw バックエンドがこのデスクトップビルドより古く、正常に動作しない場合があります。更新して揃えてください。',
-    updateHermes: 'QiQiClaw を更新',
+    updateQiQiClaw: 'QiQiClaw を更新',
     updateReadyTitle: '更新の準備ができました',
     updateReadyMessage: count => `${count} 件の新しい変更が利用可能です。`,
     seeWhatsNew: '新機能を見る',
@@ -169,8 +169,8 @@ export const ja = defineLocale({
     resetFailed: 'リセットに失敗しました',
     nav: {
       providers: 'プロバイダー',
-      providerAccounts: 'アカウント',
-      providerApiKeys: 'API キー',
+      providerModels: 'モデル',
+      providerCredentials: 'プロバイダー',
       gateway: 'ゲートウェイ',
       apiKeys: 'ツールとキー',
       keysTools: 'ツール',
@@ -617,16 +617,19 @@ export const ja = defineLocale({
       }
     },
     providers: {
-      connectAccount: 'アカウントを接続',
-      haveApiKey: 'API キーをお持ちですか？',
-      intro:
-        'サブスクリプションでサインインします。API キーのコピーは不要です。QiQiClaw がアプリ内でブラウザーサインインを代行します。',
-      connected: '接続済み',
-      collapse: '折りたたむ',
-      connectAnother: '別のプロバイダーを接続',
-      otherProviders: 'その他のプロバイダー',
       noProviderKeys: '利用可能なプロバイダー API キーがありません。',
-      loading: 'プロバイダーを読み込み中...'
+      loading: 'プロバイダーを読み込み中...',
+      credentialPoolTitle: '認証情報プール',
+      credentialPoolDesc:
+        'QiQiClaw setup、チャットのモデル切り替え、補助モデル、オーケストレーションで使うローテーション用プロバイダー認証情報です。エントリはバックエンドに保存され、ここではマスクされた概要だけを表示します。',
+      credentialPoolLoading: '認証情報プールを読み込み中...',
+      credentialPoolEmpty: 'プールされた認証情報はまだ設定されていません。',
+      credentialPoolRedacted: 'マスク済み',
+      provider: 'プロバイダー',
+      apiKey: 'API キー',
+      label: 'ラベル',
+      add: '追加',
+      requests: count => `${count} 件のリクエスト`
     },
     sessions: {
       loading: 'アーカイブ済みセッションを読み込み中…',
@@ -797,7 +800,7 @@ export const ja = defineLocale({
     gatewayStopped: 'メッセージングゲートウェイが停止中',
     hermesActiveSessions: (version, count) => `QiQiClaw ${version} · アクティブセッション ${count}`,
     restartMessaging: 'メッセージングを再起動',
-    updateHermes: 'QiQiClaw を更新',
+    updateQiQiClaw: 'QiQiClaw を更新',
     actionRunning: '実行中',
     actionDone: '完了',
     actionFailed: '失敗',

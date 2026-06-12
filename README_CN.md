@@ -6,7 +6,7 @@
 
 ## 项目简介
 
-QiQiClaw 是基于 [Nous Research](https://nousresearch.com) 的 QIQI claw 开源 AI 代理框架的中文化版本。这是一个功能强大的自主 AI 代理系统，支持多平台部署和多种 LLM 提供商。
+QiQiClaw 是 QIQI-Claw 的中文化发行版本。这是一个功能强大的自主 AI 代理系统，支持多平台部署和多种 LLM 提供商。
 
 ### 主要特性
 
@@ -24,7 +24,7 @@ QiQiClaw 是基于 [Nous Research](https://nousresearch.com) 的 QIQI claw 开�
 ### 系统要求
 
 - **Python**: 3.11 或更高版本
-- **操作系统**: Linux、macOS、WSL2（Windows 需要通过 WSL2）
+- **操作系统**: Linux、macOS、Windows 原生、WSL2
 - **Git**: 用于克隆仓库
 
 ### 安装步骤
@@ -335,22 +335,21 @@ python -m pytest tests/hermes_cli/test_auth.py -v
 
 - **项目版本**: 0.12.0
 - **汉化日期**: 2026-05-01
-- **基于**: QIQI claw by Nous Research
+- **基于**: QIQI-Claw
 - **许可证**: MIT
 
 ## 相关链接
 
 - **GitHub 仓库**: https://github.com/xzly111/qiqiclaw
-- **原项目**: https://github.com/NousResearch/qiqiclaw
-- **官方文档**: https://qiqiclaw.nousresearch.com/docs/
+- **项目文档**: https://github.com/xzly111/qiqiclaw#readme
 - **问题反馈**: https://github.com/xzly111/qiqiclaw/issues
 
 ## 许可证
 
 MIT License - 详见 [LICENSE](LICENSE) 文件
 
-基于 [Nous Research](https://nousresearch.com) 的 QIQI claw 项目构建。
+作为 QIQI-Claw 中文化发行版本维护。
 
 ---
 
-**注意**: 本项目是 QIQI claw 的中文化版本，旨在为中文用户提供更好的使用体验。所有核心功能保持与原项目一致。
+**注意**: 本项目是 QIQI-Claw 的中文化版本，旨在为中文用户提供更好的使用体验。所有核心功能保持完整。

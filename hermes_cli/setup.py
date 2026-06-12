@@ -2145,7 +2145,7 @@ def setup_gateway(config: dict):
     from hermes_cli.gateway import _all_platforms, _platform_status, _configure_platform
 
     print_header("Messaging Platforms")
-    print_info("Connect to messaging platforms to chat with Hermes from anywhere.")
+    print_info("Connect to messaging platforms to chat with QIQI-Claw from anywhere.")
     print_info("Toggle with Space, confirm with Enter.")
     print()
 

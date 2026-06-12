@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -38,6 +39,538 @@ _hermes_home = get_hermes_home()
 load_hermes_dotenv(
     hermes_home=_hermes_home, project_env=Path(__file__).parent.parent / ".env"
 )
+
+
+def _qiqiclaw_data_home() -> Path:
+    try:
+        from qiqiclaw_constants import get_qiqiclaw_home
+
+        return get_qiqiclaw_home()
+    except Exception:
+        return get_hermes_home()
+
+
+def _read_models_library() -> list[dict]:
+    path = _qiqiclaw_data_home() / "models.json"
+    try:
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    result: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        provider = str(item.get("provider") or "").strip().lower()
+        model = str(item.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        result.append({
+            "id": str(item.get("id") or ""),
+            "name": str(item.get("name") or model),
+            "provider": provider,
+            "model": model,
+            "base_url": str(item.get("base_url") or item.get("baseUrl") or "").strip(),
+            "source": "models_library",
+        })
+    return result
+
+
+def _normalize_model_base_url(raw_url: Any) -> str:
+    return str(raw_url or "").strip().rstrip("/")
+
+
+def _model_route_host(base_url: str) -> str:
+    if not base_url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+
+        return urlparse(base_url).netloc or base_url
+    except Exception:
+        return base_url
+
+
+def _model_route_label(provider: str, base_url: str) -> str:
+    host = _model_route_host(base_url)
+    return f"{provider} · {host}" if host else provider
+
+
+def _read_credential_pool(provider_id: Optional[str] = None) -> dict | list:
+    path = _qiqiclaw_data_home() / "auth.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        raw = {}
+    pool = raw.get("credential_pool") if isinstance(raw, dict) else None
+    if not isinstance(pool, dict):
+        pool = {}
+    if provider_id is None:
+        return dict(pool)
+    entries = pool.get(provider_id)
+    return list(entries) if isinstance(entries, list) else []
+
+
+def _credential_matches_model_entry(credential: Any, entry: dict) -> bool:
+    if not isinstance(credential, dict):
+        return False
+    provider = str(entry.get("provider") or "").strip().lower()
+    model_base_url = _normalize_model_base_url(entry.get("base_url"))
+    credential_base_url = _normalize_model_base_url(credential.get("base_url"))
+    if provider == "custom":
+        return bool(model_base_url and credential_base_url and model_base_url == credential_base_url)
+    return not model_base_url or not credential_base_url or model_base_url == credential_base_url
+
+
+def _credential_validates_model(credential: Any, entry: dict) -> bool:
+    if not _credential_matches_model_entry(credential, entry):
+        return False
+    if not isinstance(credential, dict):
+        return False
+    model = str(entry.get("model") or "").strip()
+    base_url = _normalize_model_base_url(entry.get("base_url"))
+    validated = credential.get("validated_models")
+    if isinstance(validated, dict):
+        state = validated.get(model)
+        if isinstance(state, dict) and state.get("status") == "ok":
+            state_base_url = _normalize_model_base_url(state.get("base_url"))
+            if not base_url or not state_base_url or state_base_url == base_url:
+                return True
+    return credential.get("last_status") == "ok" and str(credential.get("last_model") or "") == model
+
+
+def _find_verified_credential(entry: dict) -> tuple[int, dict] | None:
+    provider = str(entry.get("provider") or "").strip().lower()
+    entries = _read_credential_pool(provider)
+    if not isinstance(entries, list):
+        return None
+    for index, credential in enumerate(entries, start=1):
+        if _credential_validates_model(credential, entry):
+            return index, credential
+    return None
+
+
+def _resolve_model_route_base_url(provider: str, entry: dict, credential: dict) -> str:
+    base_url = _normalize_model_base_url(entry.get("base_url") or credential.get("base_url"))
+    if base_url:
+        return base_url
+    provider = str(provider or "").strip().lower()
+    try:
+        from qiqiclaw_cli.auth import PROVIDER_REGISTRY
+        from qiqiclaw_cli.config import get_env_value
+    except Exception:
+        return ""
+    pconfig = PROVIDER_REGISTRY.get(provider)
+    if pconfig is None:
+        return ""
+    base_url_env = getattr(pconfig, "base_url_env_var", "") or ""
+    configured_base_url = (get_env_value(base_url_env) or "").strip() if base_url_env else ""
+    return _normalize_model_base_url(configured_base_url or getattr(pconfig, "inference_base_url", "") or "")
+
+
+def _validated_model_base_url(credential: dict, entry: dict) -> str:
+    model = str(entry.get("model") or "").strip()
+    validated = credential.get("validated_models") if isinstance(credential, dict) else None
+    state = validated.get(model) if isinstance(validated, dict) else None
+    if isinstance(state, dict):
+        state_base_url = _normalize_model_base_url(state.get("base_url"))
+        if state_base_url:
+            return state_base_url
+    return _resolve_model_route_base_url(str(entry.get("provider") or ""), entry, credential)
+
+
+def _verified_model_library_entries() -> list[tuple[dict, int, dict]]:
+    entries: list[tuple[dict, int, dict]] = []
+    for entry in _read_models_library():
+        verified = _find_verified_credential(entry)
+        if verified is None:
+            continue
+        index, credential = verified
+        entries.append((entry, index, credential))
+    return entries
+
+
+def _provider_display_name(provider: str) -> str:
+    labels = {
+        "custom": "OpenAI 兼容 / 中转站 / 本地",
+        "deepseek": "DeepSeek",
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "gemini": "Gemini",
+        "openrouter": "OpenRouter",
+        "qwen": "Qwen",
+        "kimi": "Kimi",
+        "glm": "GLM / Z.AI",
+        "xai": "xAI",
+    }
+    return labels.get(provider, provider)
+
+
+def _build_verified_model_options_payload(
+    *,
+    current_model: str = "",
+    current_provider: str = "",
+) -> dict:
+    providers: list[dict] = []
+    rows: dict[str, dict] = {}
+    for entry, credential_index, credential in _verified_model_library_entries():
+        provider = str(entry.get("provider") or "").strip().lower()
+        model = str(entry.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        row = rows.get(provider)
+        if row is None:
+            row = {
+                "slug": provider,
+                "name": _provider_display_name(provider),
+                "is_current": provider == str(current_provider or "").strip().lower(),
+                "is_user_defined": True,
+                "models": [],
+                "total_models": 0,
+                "authenticated": True,
+                "auth_type": "api_key",
+                "key_env": "CUSTOM_API_KEY" if provider == "custom" else "",
+                "source": "verified_model_library",
+                "model_entries": {},
+            }
+            providers.append(row)
+            rows[provider] = row
+        if model not in row["models"]:
+            row["models"].append(model)
+        resolved_base_url = _validated_model_base_url(credential, entry)
+        existing = row["model_entries"].get(model)
+        prefer_current = existing is None
+        if existing is not None and provider != "custom":
+            existing_base_url = _normalize_model_base_url(existing.get("base_url"))
+            entry_base_url = _normalize_model_base_url(entry.get("base_url"))
+            prefer_current = not entry_base_url or not existing_base_url
+        if not prefer_current:
+            row["total_models"] = len(row["models"])
+            continue
+        row["model_entries"][model] = {
+            "id": entry.get("id"),
+            "name": entry.get("name") or model,
+            "provider": provider,
+            "model": model,
+            "base_url": resolved_base_url,
+            "endpoint_host": _model_route_host(resolved_base_url),
+            "route_label": _model_route_label(provider, resolved_base_url),
+            "credential_index": credential_index,
+            "source": "verified_model_library",
+        }
+        row["total_models"] = len(row["models"])
+    return {
+        "providers": providers,
+        "model": current_model,
+        "provider": current_provider,
+    }
+
+
+_MODEL_SWITCH_INTENT_RE = re.compile(
+    r"("
+    r"切换|切到|切换到|换成|换到|改成|改为|"
+    r"switch\s+to|change\s+to"
+    r")",
+    re.IGNORECASE,
+)
+
+_MODEL_SWITCH_COMMAND_PREFIX_RE = re.compile(
+    r"^\s*(?:请|帮我|请帮我|please\s+)?(?:(?:使用|用)|use\b)",
+    re.IGNORECASE,
+)
+
+
+def _canonical_model_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[\s_-]+", "", text)
+    return text
+
+
+def _provider_hint_from_text(text: str) -> str:
+    clean = str(text or "").lower()
+    hints = [
+        ("openai兼容", "custom"),
+        ("中转站", "custom"),
+        ("oneapi", "custom"),
+        ("custom", "custom"),
+        ("本地", "custom"),
+        ("deepseek", "deepseek"),
+        ("openrouter", "openrouter"),
+        ("openai", "openai"),
+        ("anthropic", "anthropic"),
+        ("claude", "anthropic"),
+        ("gemini", "gemini"),
+        ("google", "gemini"),
+        ("qwen", "qwen"),
+        ("kimi", "kimi"),
+        ("glm", "glm"),
+        ("z.ai", "glm"),
+        ("xai", "xai"),
+        ("grok", "xai"),
+    ]
+    for needle, provider in hints:
+        if needle in clean:
+            return provider
+    return ""
+
+
+def _has_model_switch_intent(text: str) -> bool:
+    if _MODEL_SWITCH_INTENT_RE.search(text):
+        return True
+    if not _MODEL_SWITCH_COMMAND_PREFIX_RE.search(text):
+        return False
+    return not bool(re.search(r"(能不能|可不可以|可以|能|吗|[?？])", text))
+
+
+def _resolve_verified_model_switch_target(text: str, session: dict) -> dict | None:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    if text.lstrip().startswith("/"):
+        return None
+    if not _has_model_switch_intent(text):
+        return None
+
+    payload = _build_verified_model_options_payload(
+        current_provider=str(getattr(session.get("agent"), "provider", "") or ""),
+        current_model=str(getattr(session.get("agent"), "model", "") or ""),
+    )
+    candidates: list[dict] = []
+    for provider_row in payload.get("providers") or []:
+        if not isinstance(provider_row, dict):
+            continue
+        provider = str(provider_row.get("slug") or "").strip().lower()
+        entries = provider_row.get("model_entries")
+        if not isinstance(entries, dict):
+            continue
+        for model, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            candidates.append(
+                {
+                    "provider": provider,
+                    "model": str(entry.get("model") or model).strip(),
+                    "base_url": _normalize_model_base_url(entry.get("base_url")),
+                    "route_label": str(entry.get("route_label") or "").strip(),
+                    "endpoint_host": str(entry.get("endpoint_host") or "").strip(),
+                }
+            )
+    if not candidates:
+        return None
+
+    text_key = _canonical_model_text(text)
+    matches = [
+        item
+        for item in candidates
+        if item.get("model") and _canonical_model_text(item["model"]) in text_key
+    ]
+    if not matches:
+        # Support compact aliases typed by users, e.g. gpt5.5 for gpt-5.5.
+        normalized_text = _canonical_model_text(text)
+        matches = [
+            item
+            for item in candidates
+            if item.get("model") and _canonical_model_text(item["model"]) in normalized_text
+        ]
+    if not matches:
+        return None
+
+    provider_hint = _provider_hint_from_text(text)
+    current_provider = str(getattr(session.get("agent"), "provider", "") or "").lower()
+    current_base_url = _normalize_model_base_url(getattr(session.get("agent"), "base_url", ""))
+
+    def _score(item: dict) -> tuple[int, int, int, str, str]:
+        provider = str(item.get("provider") or "").lower()
+        base_url = _normalize_model_base_url(item.get("base_url"))
+        return (
+            1 if provider_hint and provider == provider_hint else 0,
+            1 if current_provider and provider == current_provider else 0,
+            1 if current_base_url and base_url == current_base_url else 0,
+            "0" if provider != "custom" else "1",
+            str(item.get("model") or ""),
+        )
+
+    matches.sort(key=_score, reverse=True)
+    return matches[0]
+
+
+def _model_switch_command_from_target(target: dict) -> str:
+    model = str(target.get("model") or "").strip()
+    provider = str(target.get("provider") or "").strip()
+    base_url = _normalize_model_base_url(target.get("base_url"))
+    command = model
+    if provider:
+        command += f" --provider {provider}"
+    if base_url and (provider == "custom" or provider.startswith("custom:")):
+        command += f" --base-url {base_url}"
+    return command
+
+
+def _append_control_message(session: dict, role: str, content: str) -> None:
+    if not content:
+        return
+    session.setdefault("history", []).append({"role": role, "content": content})
+    session["history_version"] = int(session.get("history_version", 0)) + 1
+
+
+def _persist_control_message(session: dict, role: str, content: str) -> None:
+    try:
+        _ensure_session_db_row(session)
+        db = _get_db()
+        if db is not None:
+            db.append_message(
+                session_id=session.get("session_key") or "",
+                role=role,
+                content=content,
+            )
+    except Exception:
+        logger.debug("failed to persist control message", exc_info=True)
+
+
+def _handle_prompt_model_switch_intent(rid, sid: str, session: dict, text: str) -> dict | None:
+    target = _resolve_verified_model_switch_target(text, session)
+    if target is None:
+        return None
+    with session["history_lock"]:
+        if session.get("running"):
+            return _err(rid, 4009, "session busy")
+
+    command = _model_switch_command_from_target(target)
+    try:
+        result = _apply_model_switch(sid, session, command)
+    except Exception as exc:
+        return _err(rid, 5038, f"model switch failed: {exc}")
+
+    model = str(result.get("value") or target.get("model") or "").strip()
+    provider = str(target.get("provider") or "").strip()
+    base_url = _normalize_model_base_url(target.get("base_url"))
+    route = _model_route_label(provider, base_url)
+    confirmation = f"已在当前会话切换到 {model}。"
+    if route:
+        confirmation += f"\nProvider: {route}"
+    if base_url:
+        confirmation += f"\nBase URL: {base_url}"
+    warning = str(result.get("warning") or "").strip()
+    if warning:
+        confirmation += f"\n{warning}"
+
+    with session["history_lock"]:
+        _append_control_message(session, "user", text)
+        _append_control_message(session, "assistant", confirmation)
+        session["last_active"] = time.time()
+        _clear_inflight_turn(session)
+
+    _persist_control_message(session, "user", text)
+    _persist_control_message(session, "assistant", confirmation)
+    _emit("message.start", sid)
+    _emit("message.delta", sid, {"text": confirmation})
+    _emit(
+        "message.complete",
+        sid,
+        {
+            "text": confirmation,
+            "usage": _get_usage(session.get("agent")),
+            "status": "complete",
+        },
+    )
+    _emit("session.info", sid, _session_info(session.get("agent"), session))
+    return _ok(rid, {"status": "complete", "model": model, "provider": provider})
+
+
+def _model_library_custom_providers() -> list[dict]:
+    entries: list[dict] = []
+    for item in _read_models_library():
+        base_url = str(item.get("base_url") or "").strip()
+        model = str(item.get("model") or "").strip()
+        if not base_url or not model:
+            continue
+        provider = str(item.get("provider") or "").strip().lower() or "custom"
+        name = str(item.get("name") or model).strip() or model
+        entries.append({
+            "name": name,
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+            "models": {
+                model: {
+                    "name": name,
+                }
+            },
+            "source": "models_library",
+        })
+    return entries
+
+
+def _merge_model_library_custom_providers(custom_providers: Any) -> list[dict]:
+    merged = custom_providers if isinstance(custom_providers, list) else []
+    seen = {
+        (
+            str(entry.get("base_url") or "").strip().rstrip("/"),
+            str(entry.get("model") or "").strip(),
+        )
+        for entry in merged
+        if isinstance(entry, dict)
+    }
+    for entry in _model_library_custom_providers():
+        key = (
+            str(entry.get("base_url") or "").strip().rstrip("/"),
+            str(entry.get("model") or "").strip(),
+        )
+        if key in seen:
+            continue
+        merged.append(entry)
+        seen.add(key)
+    return merged
+
+
+def _merge_model_library_into_options(payload: dict) -> dict:
+    library = _read_models_library()
+    if not library:
+        return payload
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        providers = []
+        payload["providers"] = providers
+    rows = {
+        str(row.get("slug") or "").lower(): row
+        for row in providers
+        if isinstance(row, dict) and row.get("slug")
+    }
+    for entry in library:
+        provider = entry["provider"]
+        row = rows.get(provider)
+        if row is None:
+            row = {
+                "slug": provider,
+                "name": "OpenAI 兼容 / 中转站 / 本地" if provider == "custom" else provider,
+                "is_current": provider == str(payload.get("provider") or "").lower(),
+                "is_user_defined": True,
+                "models": [],
+                "total_models": 0,
+                "authenticated": True,
+                "auth_type": "api_key",
+                "key_env": "CUSTOM_API_KEY" if provider == "custom" else "",
+                "source": "models_library",
+            }
+            providers.append(row)
+            rows[provider] = row
+        models = row.get("models")
+        if not isinstance(models, list):
+            models = []
+            row["models"] = models
+        if entry["model"] not in models:
+            models.append(entry["model"])
+        model_entries = row.get("model_entries")
+        if not isinstance(model_entries, dict):
+            model_entries = {}
+            row["model_entries"] = model_entries
+        existing = model_entries.get(entry["model"])
+        if not isinstance(existing, dict) or entry.get("base_url"):
+            model_entries[entry["model"]] = entry
+        row["total_models"] = max(int(row.get("total_models") or 0), len(models))
+    return payload
 
 
 # ── Panic logger ─────────────────────────────────────────────────────
@@ -1457,7 +1990,7 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
     from hermes_cli.model_switch import parse_model_flags, switch_model
     from hermes_cli.runtime_provider import resolve_runtime_provider
 
-    model_input, explicit_provider, persist_global, _force_refresh = parse_model_flags(raw_input)
+    model_input, explicit_provider, persist_global, _force_refresh, explicit_base_url = parse_model_flags(raw_input)
     if not model_input:
         raise ValueError("model value required")
 
@@ -1483,6 +2016,11 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
         else:
             current_api_key = str(_runtime_key or "")
 
+    if explicit_base_url:
+        current_base_url = explicit_base_url.strip()
+        if not current_api_key:
+            current_api_key = "no-key-required"
+
     # Load user-defined providers so switch_model can resolve named custom
     # endpoints (e.g. "ollama-launch") and validate against saved model lists.
     user_provs = None
@@ -1492,9 +2030,9 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
 
         cfg = load_config()
         user_provs = cfg.get("providers")
-        custom_provs = get_compatible_custom_providers(cfg)
+        custom_provs = _merge_model_library_custom_providers(get_compatible_custom_providers(cfg))
     except Exception:
-        pass
+        custom_provs = _merge_model_library_custom_providers(custom_provs)
 
     result = switch_model(
         raw_input=model_input,
@@ -1506,9 +2044,15 @@ def _apply_model_switch(sid: str, session: dict, raw_input: str) -> dict:
         explicit_provider=explicit_provider,
         user_providers=user_provs,
         custom_providers=custom_provs,
+        explicit_base_url=explicit_base_url,
     )
     if not result.success:
         raise ValueError(result.error_message or "model switch failed")
+
+    from hermes_cli.model_switch import is_custom_provider
+
+    if explicit_base_url and is_custom_provider(result.target_provider):
+        result.base_url = explicit_base_url.strip()
 
     if agent:
         agent.switch_model(
@@ -4351,6 +4895,10 @@ def _(rid, params: dict) -> dict:
     # or fallback moved the session transport to stdio.
     if (t := current_transport()) is not None:
         session["transport"] = t
+    if truncate_user_ordinal is None and isinstance(text, str):
+        handled = _handle_prompt_model_switch_intent(rid, sid, session, text)
+        if handled is not None:
+            return handled
     with session["history_lock"]:
         if session.get("running"):
             return _err(rid, 4009, "session busy")
@@ -5510,14 +6058,14 @@ def _(rid, params: dict) -> dict:
                 if has_history
                 else None
             ),
-            "Restart exactly the app intended for the Preview URL, not Hermes Desktop itself.",
+            "Restart exactly the app intended for the Preview URL, not QIQI-Claw Desktop itself.",
             "The Preview URL and port are the target. Preserve that target unless you conclude it is impossible.",
             "If the prior conversation shows a specific command that bound this URL/port, prefer re-running THAT exact command (in the same cwd) over guessing a new one.",
             "First inspect what process, if any, owns the Preview URL port. If a stale server exists, inspect its cwd and prefer that cwd over the Hermes/Desktop process cwd.",
             "The Current working directory is only a hint. Do not assume it is the preview app root when the port owner or files indicate another root.",
             "If the console shows a module-script MIME error for src/main.tsx or similar, a static server is serving source files. Do not restart python -m http.server or any dumb static server for that app.",
             "For module-script MIME failures, inspect package.json/vite config in the candidate app root and start the real dev server/bundler (for example npm/pnpm/yarn dev) so module transforms happen.",
-            "Before declaring success, verify the Preview URL responds with the intended app, not Hermes Desktop. If it serves Hermes/Desktop UI or another unrelated app, stop that process and report failure.",
+            "Before declaring success, verify the Preview URL responds with the intended app, not QIQI-Claw Desktop. If it serves Hermes/Desktop UI or another unrelated app, stop that process and report failure.",
             "Do not modify files. Do not ask the user unless blocked.",
             "Prefer existing project scripts or commands when they are clear.",
             "If a stale process owns the needed port, handle it safely.",
@@ -7478,39 +8026,17 @@ def _(rid, params: dict) -> dict:
 @method("model.options")
 def _(rid, params: dict) -> dict:
     try:
-        from hermes_cli.inventory import build_models_payload, load_picker_context
-
         session = _sessions.get(params.get("session_id", ""))
         agent = session.get("agent") if session else None
-        # Layer agent-session state on top of disk config — once an agent
-        # is spawned, IT owns the live provider/model/base_url. Empty
-        # agent attributes must NOT clobber disk config (with_overrides
-        # is truthy-only).
-        ctx = load_picker_context().with_overrides(
-            current_provider=getattr(agent, "provider", "") if agent else "",
-            current_model=(
-                (getattr(agent, "model", "") if agent else "") or _resolve_model()
+        current_provider = getattr(agent, "provider", "") if agent else ""
+        current_model = (getattr(agent, "model", "") if agent else "") or _resolve_model()
+        return _ok(
+            rid,
+            _build_verified_model_options_payload(
+                current_provider=current_provider,
+                current_model=current_model,
             ),
-            current_base_url=getattr(agent, "base_url", "") if agent else "",
         )
-        # picker_hints + canonical_order produce the TUI's required shape:
-        # `authenticated`/`auth_type`/`key_env`/`warning` per row, in
-        # CANONICAL_PROVIDERS declaration order. include_unconfigured=True
-        # so the picker can show the full provider universe (with the
-        # setup-hint warning attached) instead of only authed rows.
-        # Curated model lists are preserved — list_authenticated_providers
-        # populates `models` from the curated catalog, not provider_model_ids
-        # (which would pull non-agentic models like TTS/embeddings/etc.).
-        payload = build_models_payload(
-            ctx,
-            include_unconfigured=True,
-            picker_hints=True,
-            canonical_order=True,
-            pricing=True,
-            capabilities=True,
-            max_models=50,
-        )
-        return _ok(rid, payload)
     except Exception as e:
         return _err(rid, 5033, str(e))
 

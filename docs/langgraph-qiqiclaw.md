@@ -15,7 +15,7 @@ qiqiclaw langgraph "执行一个真实任务"
 - `qiqiclaw_cli.langgraph_runner` 构建 `StateGraph`。
 - 图中 `qiqiclaw` 节点调用现有 `qiqiclaw_cli.oneshot._run_agent()`。
 - `--dry-run` 使用确定性本地 runner，不调用模型，适合验证安装和自动化测试。
-- 不替换 QiQiClaw/Hermes 兼容后端循环，不移除 `hermes_cli`、`HERMES_*` 和桌面 IPC 兼容层。
+- 不替换 QiQiClaw/QIQI-Claw 兼容后端循环，不移除 `hermes_cli`、`HERMES_*` 和桌面 IPC 兼容层。
 
 ## 后续扩展点
 

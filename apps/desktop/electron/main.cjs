@@ -26,7 +26,7 @@ const { fileURLToPath, pathToFileURL } = require('node:url')
 const { execFileSync, spawn } = require('node:child_process')
 const { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } = require('./bootstrap-platform.cjs')
 const { runBootstrap } = require('./bootstrap-runner.cjs')
-const { canImportHermesCli, verifyHermesCli } = require('./backend-probes.cjs')
+const { canImportQiQiClawCli, verifyQiQiClawCli } = require('./backend-probes.cjs')
 const { probeGatewayWebSocket } = require('./gateway-ws-probe.cjs')
 const { serializeJsonBody, setJsonRequestHeaders } = require('./oauth-net-request.cjs')
 const {
@@ -99,6 +99,19 @@ const IS_MAC = process.platform === 'darwin'
 const IS_WINDOWS = process.platform === 'win32'
 const IS_WSL = isWslEnvironment()
 const APP_ROOT = app.getAppPath()
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+  process.exit(0)
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
 
 // Remote displays (SSH X11 forwarding, VNC, RDP) make Chromium's GPU
 // compositor flicker — accelerated layers can't be presented cleanly over the
@@ -184,47 +197,35 @@ if (INSTALL_STAMP) {
   )
 }
 
-// HERMES_HOME — the user-facing root for everything Hermes-related. Mirrors
-// scripts/install.ps1's $HermesHome and scripts/install.sh's $HERMES_HOME.
+// HERMES_HOME — the user-facing root for legacy QiQiClaw-compatible code. Mirrors
+// scripts/install.ps1's $QiQiClawHome and scripts/install.sh's $HERMES_HOME.
 //
 // Defaults:
-//   Windows: %LOCALAPPDATA%\hermes (matches install.ps1)
+//   Windows: ~/.qiqiclaw (matches install.ps1)
 //   macOS / Linux: ~/.qiqiclaw (matches install.sh)
-//
-// Special case for Windows: if the user has a legacy ~/.qiqiclaw directory
-// (e.g., from a prior pip install or a manual setup) AND no
-// %LOCALAPPDATA%\hermes yet, prefer the legacy path so we don't orphan their
-// existing config / sessions / .env. New installs go to %LOCALAPPDATA%.
 //
 // HERMES_DESKTOP_USER_DATA_DIR (used by test:desktop:fresh) puts the sandbox
 // HERMES_HOME beneath the throwaway userData dir so a fresh-install run never
-// touches the user's real ~/.qiqiclaw / %LOCALAPPDATA%\hermes.
-function resolveHermesHome() {
+// touches the user's real ~/.qiqiclaw.
+function resolveQiQiClawHome() {
+  if (process.env.QIQICLAW_HOME) return path.resolve(process.env.QIQICLAW_HOME)
   if (process.env.HERMES_HOME) return path.resolve(process.env.HERMES_HOME)
-  if (USER_DATA_OVERRIDE) return path.join(path.resolve(USER_DATA_OVERRIDE), 'hermes-home')
-  if (IS_WINDOWS && process.env.LOCALAPPDATA) {
-    const localappdata = path.join(process.env.LOCALAPPDATA, 'hermes')
-    const legacy = path.join(app.getPath('home'), '.hermes')
-    // Migrate transparently to LOCALAPPDATA, but honour an existing legacy
-    // ~/.qiqiclaw setup (no LOCALAPPDATA install yet) so users don't lose state.
-    if (!directoryExists(localappdata) && directoryExists(legacy)) return legacy
-    return localappdata
-  }
-  return path.join(app.getPath('home'), '.hermes')
+  if (USER_DATA_OVERRIDE) return path.join(path.resolve(USER_DATA_OVERRIDE), 'qiqiclaw-home')
+  return path.join(app.getPath('home'), '.qiqiclaw')
 }
 
-const HERMES_HOME = resolveHermesHome()
+const HERMES_HOME = resolveQiQiClawHome()
 // ACTIVE_HERMES_ROOT — the canonical mutable QiQiClaw install. Same path
 // install.ps1 / install.sh use, so a desktop-only user and a CLI-only user end
 // up with identical layouts and can share one install.
-const ACTIVE_HERMES_ROOT = path.join(HERMES_HOME, 'hermes-agent')
+const ACTIVE_HERMES_ROOT = path.join(HERMES_HOME, 'qiqiclaw')
 // VENV_ROOT — venv lives inside the repo, exactly like install.ps1 does it.
 const VENV_ROOT = path.join(ACTIVE_HERMES_ROOT, 'venv')
 // BOOTSTRAP_COMPLETE_MARKER — written by the first-launch bootstrap runner
 // (Phase 1D) after install.ps1 has completed all stages and the user has
 // finished initial configuration. Presence of this marker means the install
 // is in a known-good state and we can skip the bootstrap flow on subsequent
-// boots, going straight to `resolveHermesBackend()`. Missing or stale marker
+// boots, going straight to `resolveQiQiClawBackend()`. Missing or stale marker
 // means we re-run the bootstrap; install.ps1's stages are idempotent so a
 // re-run on an already-good install just discovers everything in place.
 //
@@ -236,8 +237,8 @@ const BOOTSTRAP_MARKER_SCHEMA_VERSION = 1
 
 const DESKTOP_CONNECTION_CONFIG_PATH = path.join(app.getPath('userData'), 'connection.json')
 const DESKTOP_UPDATE_CONFIG_PATH = path.join(app.getPath('userData'), 'updates.json')
-// active-profile.json records which Hermes profile the desktop launches its
-// local backend as. When set, startHermes() passes `qiqiclaw --profile <name>
+// active-profile.json records which QiQiClaw profile the desktop launches its
+// local backend as. When set, startQiQiClaw() passes `qiqiclaw --profile <name>
 // dashboard …`, which deterministically pins HERMES_HOME (see
 // _apply_profile_override in hermes_cli/main.py) and bypasses the sticky
 // ~/.qiqiclaw/active_profile file. Unset (null) preserves the legacy behavior:
@@ -437,14 +438,14 @@ function previewFileMetadata(filePath, mimeType) {
 }
 
 app.setName(APP_NAME)
-// Seed the native About panel with the live Hermes version. This is refreshed
+// Seed the native About panel with the live QiQiClaw version. This is refreshed
 // on every open via the explicit "About" menu handler (refreshAboutPanel), so
 // an in-place `qiqiclaw update` mid-session is reflected without an app restart;
 // the seed here just covers the first open and any non-menu invocation path.
 app.setAboutPanelOptions({
   applicationName: APP_NAME,
-  applicationVersion: resolveHermesVersion(),
-  copyright: 'Copyright © 2026 QiQiClaw'
+  applicationVersion: resolveQiQiClawVersion(),
+  copyright: 'Copyright © 2026 '
 })
 
 // Custom scheme for streaming local media (video/audio) into the renderer.
@@ -510,9 +511,11 @@ function registerMediaProtocol() {
 let mainWindow = null
 let hermesProcess = null
 let connectionPromise = null
+let gatewayAutostartInFlight = false
+let gatewayAutostartProcess = null
 // Additional per-profile backends, keyed by profile name. The PRIMARY backend
 // (the desktop's launch profile) stays managed by hermesProcess +
-// connectionPromise + startHermes(); this pool only holds EXTRA profile
+// connectionPromise + startQiQiClaw(); this pool only holds EXTRA profile
 // backends spawned lazily when a session belongs to a different profile. A user
 // with no named profiles never populates this map, so their experience is
 // byte-for-byte the single-backend behavior.
@@ -536,7 +539,7 @@ const RENDERER_RELOAD_WINDOW_MS = 60_000
 const RENDERER_RELOAD_MAX = 3
 let rendererReloadTimes = []
 // Latched bootstrap failure: when the first-launch install fails, we hold
-// onto the error so subsequent startHermes() calls (e.g. the renderer's
+// onto the error so subsequent startQiQiClaw() calls (e.g. the renderer's
 // ensureGatewayOpen retrying after the WS won't open) return the same error
 // instead of re-running install.ps1 in a hot loop. Cleared explicitly by
 // the renderer's "Reload and retry" path or by quitting the app.
@@ -1006,7 +1009,7 @@ function looksLikeDesktopAppBinary(commandPath) {
   )
 }
 
-function isHermesSourceRoot(root) {
+function isQiQiClawSourceRoot(root) {
   return directoryExists(root) && fileExists(path.join(root, 'hermes_cli', 'main.py'))
 }
 
@@ -1049,7 +1052,7 @@ function findSystemPython() {
   //      miss real Python 3.13 installs (user-reported case).
   //
   // We also restrict ourselves to Python 3.11–3.13. 3.14 is the latest
-  // CPython but several Hermes deps (notably pywinpty's Rust-built
+  // CPython but several QiQiClaw deps (notably pywinpty's Rust-built
   // windows_x86_64_msvc crate) don't yet publish 3.14 wheels, and
   // `pip install -e .` falls back to source-build, which fails without
   // a Rust toolchain. install.ps1 sidesteps this by pinning to 3.11
@@ -1143,7 +1146,7 @@ function findSystemPython() {
   return null
 }
 
-// findGitBash — locate bash.exe on Windows. Hermes' terminal tool requires
+// findGitBash — locate bash.exe on Windows. QiQiClaw's terminal tool requires
 // bash (POSIX shell), and on Windows that's almost always Git for Windows'
 // bundled Git Bash. We check the same set of locations tools/environments/
 // local.py:_find_bash() checks at runtime, so a positive result here means
@@ -1156,21 +1159,18 @@ function findGitBash() {
     return findOnPath('bash')
   }
 
-  // install.ps1 drops PortableGit at %LOCALAPPDATA%\hermes\git\... — checked
+  // install.ps1 drops PortableGit at HERMES_HOME\git\... — checked
   // first so users who installed via install.ps1 are detected before we
   // start probing system-wide locations.
-  const localAppData = process.env.LOCALAPPDATA || ''
   const candidates = []
-  if (localAppData) {
-    candidates.push(path.join(localAppData, 'hermes', 'git', 'bin', 'bash.exe'))
-    candidates.push(path.join(localAppData, 'hermes', 'git', 'usr', 'bin', 'bash.exe'))
-  }
+  candidates.push(path.join(HERMES_HOME, 'git', 'bin', 'bash.exe'))
+  candidates.push(path.join(HERMES_HOME, 'git', 'usr', 'bin', 'bash.exe'))
 
   // Standard Git for Windows install locations.
   candidates.push(path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'))
   candidates.push(path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'))
-  if (localAppData) {
-    candidates.push(path.join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'))
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'))
   }
 
   for (const candidate of candidates) {
@@ -1188,7 +1188,7 @@ function getVenvPython(venvRoot) {
 }
 
 // resolveGitBinary — locate git.exe on Windows. A fresh installer-driven
-// install only has PortableGit under %LOCALAPPDATA%\hermes\git (never on
+// install only has PortableGit under HERMES_HOME\git (never on
 // PATH), so a bare spawn('git') ENOENTs and self-update checks fail with
 // "Couldn't check for updates". Mirror findGitBash: PortableGit first, then
 // standard Git-for-Windows locations, then PATH. Cached after first probe.
@@ -1200,23 +1200,18 @@ function resolveGitBinary() {
     return _gitBinaryCache
   }
 
-  const localAppData = process.env.LOCALAPPDATA || ''
   const candidates = []
-  if (localAppData) {
-    candidates.push(path.join(localAppData, 'hermes', 'git', 'cmd', 'git.exe'))
-    candidates.push(path.join(localAppData, 'hermes', 'git', 'bin', 'git.exe'))
-  }
+  candidates.push(path.join(HERMES_HOME, 'git', 'cmd', 'git.exe'))
+  candidates.push(path.join(HERMES_HOME, 'git', 'bin', 'git.exe'))
   candidates.push(path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Git', 'cmd', 'git.exe'))
   candidates.push(path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'cmd', 'git.exe'))
-  if (localAppData) {
-    candidates.push(path.join(localAppData, 'Programs', 'Git', 'cmd', 'git.exe'))
-  }
+  if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'cmd', 'git.exe'))
 
   _gitBinaryCache = candidates.find(fileExists) || findOnPath('git') || 'git'
   return _gitBinaryCache
 }
 
-function recentHermesLog() {
+function recentQiQiClawLog() {
   return hermesLog.slice(-20).join('\n')
 }
 
@@ -1251,8 +1246,8 @@ function writeDesktopUpdateConfig(config) {
 function resolveUpdateRoot() {
   const candidates = [
     (process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT) && path.resolve((process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT)),
-    !IS_PACKAGED && isHermesSourceRoot(SOURCE_REPO_ROOT) ? SOURCE_REPO_ROOT : null,
-    isHermesSourceRoot(ACTIVE_HERMES_ROOT) ? ACTIVE_HERMES_ROOT : null
+    !IS_PACKAGED && isQiQiClawSourceRoot(SOURCE_REPO_ROOT) ? SOURCE_REPO_ROOT : null,
+    isQiQiClawSourceRoot(ACTIVE_HERMES_ROOT) ? ACTIVE_HERMES_ROOT : null
   ].filter(Boolean)
 
   return candidates.find(c => directoryExists(path.join(c, '.git'))) || candidates[0] || ACTIVE_HERMES_ROOT
@@ -1431,7 +1426,7 @@ function repairMacUpdaterHelper(updater) {
 // Path to the venv shim whose lock decides whether `qiqiclaw update` can write
 // fresh entry points. On Windows this is the file the running backend
 // `hermes.exe` holds open; on POSIX it's never mandatory-locked.
-function venvHermesShimPath(updateRoot) {
+function venvQiQiClawShimPath(updateRoot) {
   return IS_WINDOWS
     ? path.join(updateRoot, 'venv', 'Scripts', 'hermes.exe')
     : path.join(updateRoot, 'venv', 'bin', 'hermes')
@@ -1532,7 +1527,7 @@ async function releaseBackendLock(updateRoot, tag) {
   stopAllPoolBackends()
   for (const pid of pids) forceKillProcessTree(pid)
 
-  const shim = venvHermesShimPath(updateRoot)
+  const shim = venvQiQiClawShimPath(updateRoot)
   const deadlineMs = Date.now() + 15000
   while (Date.now() < deadlineMs) {
     if (!isShimLocked(shim)) {
@@ -1549,7 +1544,7 @@ async function releaseBackendLock(updateRoot, tag) {
 //
 // The desktop is a pure consumer: it does NOT git pull / pip install / rebuild
 // itself (the old open-coded git dance lived here and drifted from
-// `qiqiclaw update`). Instead we spawn the staged Hermes-Setup binary with
+// `qiqiclaw update`). Instead we spawn the staged QiQiClaw-Setup binary with
 // --update and quit, so it can run `qiqiclaw update` (which refuses while we
 // hold the venv shim) and rebuild the desktop with our exe already gone.
 //
@@ -1567,14 +1562,14 @@ async function applyUpdates(opts = {}) {
       // macOS/Linux drag-install: no staged Tauri hermes-setup. Unlike Windows
       // (where a venv-shim file lock forces the quit→hand-off→rebuild dance),
       // there's no mandatory file locking here, so the desktop can drive the
-      // whole update itself: `qiqiclaw update` (backend) + `hermes desktop
+      // whole update itself: `qiqiclaw update` (backend) + `QiQiClaw Desktop
       // --build-only` (OS-aware GUI rebuild), then swap the running .app bundle
       // with the freshly built one and relaunch.
       return await applyUpdatesPosixInApp(opts)
     }
     if (!updater) {
       // No staged updater binary — this is a CLI-installed user (they ran
-      // `hermes desktop`, never the Tauri installer that self-copies
+      // `QiQiClaw Desktop`, never the Tauri installer that self-copies
       // hermes-setup.exe into HERMES_HOME). They DO have a working `hermes`
       // on PATH / in the venv, so the correct path is the one-liner in their
       // native medium. We show the EXACT command, branch-pinned to the
@@ -1649,9 +1644,9 @@ async function applyUpdates(opts = {}) {
 
 // Resolve the hermes CLI to drive an in-app update: prefer the venv shim in
 // the install we're updating, fall back to `hermes` on PATH.
-function resolveHermesCliBinary(updateRoot) {
-  const venvHermes = path.join(updateRoot, 'venv', 'bin', 'hermes')
-  if (fileExists(venvHermes)) return venvHermes
+function resolveQiQiClawCliBinary(updateRoot) {
+  const venvQiQiClaw = path.join(updateRoot, 'venv', 'bin', 'hermes')
+  if (fileExists(venvQiQiClaw)) return venvQiQiClaw
   return findOnPath('hermes') || null
 }
 
@@ -1696,18 +1691,18 @@ function shellQuote(value) {
 }
 
 // macOS/Linux in-app update: backend (`qiqiclaw update`) + OS-aware GUI rebuild
-// (`hermes desktop --build-only`), then atomically swap the running .app bundle
+// (`QiQiClaw Desktop --build-only`), then atomically swap the running .app bundle
 // with the freshly built one and relaunch. Degrades to "backend updated,
 // restart to load the new GUI" if the swap can't be performed.
 async function applyUpdatesPosixInApp() {
   const updateRoot = resolveUpdateRoot()
-  const hermes = resolveHermesCliBinary(updateRoot)
+  const hermes = resolveQiQiClawCliBinary(updateRoot)
   if (!hermes) {
     emitUpdateProgress({ stage: 'manual', message: 'qiqiclaw update', percent: null })
     return { ok: true, manual: true, command: 'qiqiclaw update', hermesRoot: updateRoot }
   }
 
-  // Put the Hermes-managed Node and the venv on PATH so `hermes desktop`'s
+  // Put the QiQiClaw-managed Node and the venv on PATH so `QiQiClaw Desktop`'s
   // npm build can find them on a machine with no system Node.
   const extraPath = [path.join(HERMES_HOME, 'node', 'bin'), path.join(updateRoot, 'venv', 'bin')]
     .filter(Boolean)
@@ -1822,7 +1817,7 @@ fi
 /usr/bin/xattr -dr com.apple.quarantine "$DST" 2>/dev/null || true
 /usr/bin/open "$DST"
 `
-  const scriptPath = path.join(app.getPath('temp'), `hermes-desktop-update-${Date.now()}.sh`)
+  const scriptPath = path.join(app.getPath('temp'), `qiqiclaw-desktop-update-${Date.now()}.sh`)
   try {
     fs.writeFileSync(scriptPath, swapScript, { mode: 0o755 })
   } catch (err) {
@@ -1881,7 +1876,7 @@ function isBootstrapComplete() {
   // a runnable venv: an interrupted or split-home install can leave the marker
   // + checkout without a venv, and trusting that spawns a dead backend
   // ("gateway offline") instead of re-running bootstrap to repair it.
-  return isHermesSourceRoot(ACTIVE_HERMES_ROOT) && fileExists(getVenvPython(VENV_ROOT))
+  return isQiQiClawSourceRoot(ACTIVE_HERMES_ROOT) && fileExists(getVenvPython(VENV_ROOT))
 }
 
 function writeBootstrapMarker(payload) {
@@ -1912,9 +1907,9 @@ function resolveRendererIndex() {
   return candidates.find(fileExists) || candidates[0]
 }
 
-function resolveHermesCwd() {
+function resolveQiQiClawCwd() {
   // In a packaged build, `process.cwd()` resolves to the install root (e.g.
-  // `…/win-unpacked` on Windows or `/Applications/Hermes.app/Contents/...`
+  // `…/win-unpacked` on Windows or `/Applications/QiQiClaw.app/Contents/...`
   // on macOS). Sessions spawned there leave files inside the app bundle
   // and bewilder users when "where did my files go?" is the install dir.
   // The user-configurable default project directory wins over everything,
@@ -1988,7 +1983,7 @@ function createPythonBackend(root, label, dashboardArgs, options = {}) {
     kind: 'python',
     label,
     command: python,
-    args: ['-m', 'hermes_cli.main', ...dashboardArgs],
+    args: ['-m', 'qiqiclaw_cli.main', ...dashboardArgs],
     env: {
       PYTHONPATH: [root, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
     },
@@ -2009,7 +2004,7 @@ function createActiveBackend(dashboardArgs) {
     kind: 'python',
     label: `QiQiClaw at ${ACTIVE_HERMES_ROOT}`,
     command: fileExists(venvPython) ? venvPython : findSystemPython(),
-    args: ['-m', 'hermes_cli.main', ...dashboardArgs],
+    args: ['-m', 'qiqiclaw_cli.main', ...dashboardArgs],
     env: {
       PYTHONPATH: [ACTIVE_HERMES_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
     },
@@ -2019,11 +2014,11 @@ function createActiveBackend(dashboardArgs) {
   }
 }
 
-function resolveHermesBackend(dashboardArgs) {
+function resolveQiQiClawBackend(dashboardArgs) {
   // 1. Explicit override -- HERMES_DESKTOP_HERMES_ROOT points at a developer
   //    checkout. Honour it as-is (no bootstrap; the user is driving).
   const overrideRoot = (process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT) && path.resolve((process.env.QIQICLAW_DESKTOP_HERMES_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT))
-  if (overrideRoot && isHermesSourceRoot(overrideRoot)) {
+  if (overrideRoot && isQiQiClawSourceRoot(overrideRoot)) {
     const backend = createPythonBackend(overrideRoot, `QiQiClaw source at ${overrideRoot}`, dashboardArgs)
     if (backend) return backend
   }
@@ -2031,14 +2026,14 @@ function resolveHermesBackend(dashboardArgs) {
   // 2. Development source -- when running `npm run dev` from a checkout, the
   //    cloned repo at SOURCE_REPO_ROOT takes precedence over ACTIVE and any
   //    installed `hermes` on PATH so local Python edits are actually exercised.
-  //    (In dev with no checkout, SOURCE_REPO_ROOT won't pass isHermesSourceRoot.)
-  if (!IS_PACKAGED && isHermesSourceRoot(SOURCE_REPO_ROOT)) {
+  //    (In dev with no checkout, SOURCE_REPO_ROOT won't pass isQiQiClawSourceRoot.)
+  if (isQiQiClawSourceRoot(SOURCE_REPO_ROOT)) {
     const backend = createPythonBackend(SOURCE_REPO_ROOT, `QiQiClaw source at ${SOURCE_REPO_ROOT}`, dashboardArgs)
     if (backend) return backend
   }
 
   // 3. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
-  //    %LOCALAPPDATA%\hermes\hermes-agent (Windows) or ~/.qiqiclaw/hermes-agent.
+  //    ~/.qiqiclaw/qiqiclaw on Windows, Linux, and macOS.
   //    The bootstrap marker means install.ps1 stages finished and the user
   //    completed initial configuration; we trust the install and go straight
   //    to spawning hermes. Updates flow through the in-app update path
@@ -2063,7 +2058,7 @@ function resolveHermesBackend(dashboardArgs) {
       } else if (!isWindowsBinaryPathInWsl(hermesOverride, { isWsl: IS_WSL })) {
         hermesCommand = hermesOverride
       } else {
-        rememberLog(`Ignoring Windows Hermes override under WSL: ${hermesOverride}`)
+        rememberLog(`Ignoring Windows QiQiClaw override under WSL: ${hermesOverride}`)
       }
     } else {
       hermesCommand = findOnPath('hermes')
@@ -2085,7 +2080,7 @@ function resolveHermesBackend(dashboardArgs) {
       // `--version` probe (see backend-probes.cjs) catches that case
       // and lets the resolver fall through to step 6 / bootstrap.
       const shellForProbe = isCommandScript(hermesCommand)
-      if (verifyHermesCli(hermesCommand, { shell: shellForProbe })) {
+      if (verifyQiQiClawCli(hermesCommand, { shell: shellForProbe })) {
         return {
           label: `existing QiQiClaw CLI at ${hermesCommand}`,
           command: hermesCommand,
@@ -2114,13 +2109,13 @@ function resolveHermesBackend(dashboardArgs) {
     // backend hands the spawn step a guaranteed ModuleNotFoundError.
     // Verify the import works before trusting the candidate; on
     // failure, fall through to step 6 so the bootstrap runner pulls
-    // a uv-managed 3.11 into %LOCALAPPDATA%\hermes\hermes-agent\venv.
-    if (canImportHermesCli(python)) {
+    // a uv-managed 3.11 into ~/.qiqiclaw/qiqiclaw/venv.
+    if (canImportQiQiClawCli(python)) {
       return {
         kind: 'python',
         label: `installed hermes_cli module via ${python}`,
         command: python,
-        args: ['-m', 'hermes_cli.main', ...dashboardArgs],
+        args: ['-m', 'qiqiclaw_cli.main', ...dashboardArgs],
         bootstrap: false,
         env: {},
         shell: false
@@ -2136,7 +2131,7 @@ function resolveHermesBackend(dashboardArgs) {
   //    explaining what's missing.
   //
   //    We deliberately do NOT throw here -- throwing inside
-  //    resolveHermesBackend was the old "no payload" path and forced the
+  //    resolveQiQiClawBackend was the old "no payload" path and forced the
   //    user into a dead end. With the bootstrap protocol, "no install yet"
   //    is a recoverable state the GUI can drive through.
   return {
@@ -2161,7 +2156,7 @@ async function ensureRuntime(backend) {
     return backend
   }
 
-  // backend.kind === 'bootstrap-needed' means resolveHermesBackend couldn't
+  // backend.kind === 'bootstrap-needed' means resolveQiQiClawBackend couldn't
   // find anything to spawn. Hand off to the bootstrap runner which drives the
   // platform installer, writes the bootstrap-complete marker on success, then
   // we re-resolve to get the now-installed backend.
@@ -2235,7 +2230,7 @@ async function ensureRuntime(backend) {
       )
       bootstrapError.isBootstrapFailure = true
       bootstrapError.failedStage = bootstrapResult.failedStage || null
-      // Latch the failure so subsequent startHermes() calls return this
+      // Latch the failure so subsequent startQiQiClaw() calls return this
       // same error without re-running install.ps1.  Cleared by the
       // hermes:bootstrap:reset IPC (renderer's "Reload and retry").
       bootstrapFailure = bootstrapError
@@ -2245,7 +2240,7 @@ async function ensureRuntime(backend) {
     rememberLog('[bootstrap] bootstrap complete; marker written. Re-resolving backend.')
     // Re-resolve now that the install exists. The new resolution lands in
     // step 3 (bootstrap-complete marker) and we recurse to wire venvPython.
-    return ensureRuntime(resolveHermesBackend(backend.args))
+    return ensureRuntime(resolveQiQiClawBackend(backend.args))
   }
 
   // bootstrap=true with a real backend (createActiveBackend path) means we
@@ -2254,17 +2249,17 @@ async function ensureRuntime(backend) {
   // sync flow exited through, minus all the factory/pip/marker machinery
   // (install.ps1 owns those concerns now and the bootstrap-complete marker
   // attests they ran successfully).
-  if (!isHermesSourceRoot(ACTIVE_HERMES_ROOT)) {
+  if (!isQiQiClawSourceRoot(ACTIVE_HERMES_ROOT)) {
     throw new Error(
       `QiQiClaw install at ${ACTIVE_HERMES_ROOT} is missing or incomplete. ` +
         'Reinstall via the desktop installer or scripts/install.ps1.'
     )
   }
 
-  // On Windows, preflight Git Bash. Hermes' terminal tool calls bash.exe
+  // On Windows, preflight Git Bash. QiQiClaw's terminal tool calls bash.exe
   // directly (tools/environments/local.py); without it the agent can't run
   // terminal commands. install.ps1's Stage-Git puts PortableGit at
-  // %LOCALAPPDATA%\hermes\git\, which findGitBash() picks up, so for any
+  // HERMES_HOME\git\, which findGitBash() picks up, so for any
   // user who completed the bootstrap this is a no-op. For users who got
   // here via an external `hermes` on PATH, this check still helps.
   if (IS_WINDOWS && !findGitBash()) {
@@ -2282,7 +2277,7 @@ async function ensureRuntime(backend) {
     // means we have a half-installed checkout: .git exists, source files
     // exist, but venv is missing or broken. This shouldn't happen in
     // normal flow because isBootstrapComplete() requires
-    // isHermesSourceRoot() and the bootstrap writes the marker only after
+    // isQiQiClawSourceRoot() and the bootstrap writes the marker only after
     // install.ps1 succeeds. If we hit this, the user (or a deleted venv)
     // broke the invariant; tell them to re-run the install.
     throw new Error(
@@ -2338,7 +2333,9 @@ function fetchJson(url, token, options = {}) {
         method: options.method || 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'X-Hermes-Session-Token': token,
+          'X-QiQiClaw-Session-Token': token,
+          'X-QiQi-Claw-Session-Token': token,
+          'X-Session-Token': token,
           ...(body ? { 'Content-Length': String(body.length) } : {})
         }
       },
@@ -2392,7 +2389,7 @@ function fetchJson(url, token, options = {}) {
 function fetchPublicJson(url, options = {}) {
   // Credential-free JSON GET/POST for public gateway endpoints
   // (``/api/status``, ``/api/auth/providers``). Unlike ``fetchJson`` it sends
-  // NO ``X-Hermes-Session-Token`` header — used by the auth-mode probe before
+  // NO ``X-QiQiClaw-Session-Token`` header — used by the auth-mode probe before
   // any credentials exist, and any time we must not leak a token to an
   // endpoint that doesn't need one.
   return new Promise((resolve, reject) => {
@@ -2826,7 +2823,7 @@ function expandUserPath(filePath) {
 
 function previewFileTarget(rawTarget, baseDir) {
   const raw = String(rawTarget || '').trim()
-  const base = baseDir ? path.resolve(expandUserPath(baseDir)) : resolveHermesCwd()
+  const base = baseDir ? path.resolve(expandUserPath(baseDir)) : resolveQiQiClawCwd()
   const filePath = raw.startsWith('file:') ? fileURLToPath(raw) : path.resolve(base, expandUserPath(raw))
   let resolved = filePath
 
@@ -2969,7 +2966,7 @@ function closePreviewWatchers() {
   }
 }
 
-async function waitForHermes(baseUrl, token) {
+async function waitForQiQiClaw(baseUrl, token) {
   const deadline = Date.now() + 45_000
   let lastError = null
 
@@ -4083,7 +4080,7 @@ async function requestJsonForProfile(profile, path, method, body) {
 
 async function probeRemoteAuthMode(rawUrl) {
   // Determine how a remote gateway expects callers to authenticate, WITHOUT
-  // sending any credentials. ``/api/status`` is public on every Hermes
+  // sending any credentials. ``/api/status`` is public on every QiQiClaw
   // gateway (it backs the portal liveness probe) and reports:
   //   auth_required: true  → OAuth gate is engaged (cookie + ws-ticket auth)
   //   auth_required: false → loopback/--insecure: legacy session-token auth
@@ -4167,7 +4164,7 @@ async function testDesktopConnectionConfig(input = {}) {
       token = decryptDesktopSecret(block.token)
     }
   } else {
-    const remote = (await resolveRemoteBackend(key)) || (await startHermes())
+    const remote = (await resolveRemoteBackend(key)) || (await startQiQiClaw())
     baseUrl = remote.baseUrl
     token = remote.token
     authMode = normAuthMode(remote.authMode)
@@ -4215,7 +4212,7 @@ function resetBootProgressForReconnect() {
   )
 }
 
-function resetHermesConnection() {
+function resetQiQiClawConnection() {
   connectionPromise = null
 
   if (hermesProcess && !hermesProcess.killed) {
@@ -4228,12 +4225,12 @@ function resetHermesConnection() {
 
 // Re-home the primary backend: reset connection state, then wait for the live
 // dashboard process to actually exit (SIGKILL after 5s) so the next
-// startHermes() spawns fresh instead of racing the dying one. Shared by the
+// startQiQiClaw() spawns fresh instead of racing the dying one. Shared by the
 // connection-config and profile switch flows.
 async function teardownPrimaryBackendAndWait() {
-  // Capture the reference before resetHermesConnection() nulls hermesProcess.
+  // Capture the reference before resetQiQiClawConnection() nulls hermesProcess.
   const dying = hermesProcess && !hermesProcess.killed ? hermesProcess : null
-  resetHermesConnection()
+  resetQiQiClawConnection()
 
   if (!dying) {
     return
@@ -4263,14 +4260,14 @@ function primaryProfileKey() {
 }
 
 // Resolve a backend connection for the given profile. Routes the primary
-// profile to startHermes() (the window backend: boot UI, bootstrap, remote
+// profile to startQiQiClaw() (the window backend: boot UI, bootstrap, remote
 // mode), and any OTHER profile to a lazily-spawned pool backend. An empty /
 // unknown profile resolves to the primary, so all legacy callers are unchanged.
 async function ensureBackend(profile) {
   const key = profile && String(profile).trim() ? String(profile).trim() : primaryProfileKey()
 
   if (key === primaryProfileKey()) {
-    return startHermes()
+    return startQiQiClaw()
   }
 
   const existing = backendPool.get(key)
@@ -4339,7 +4336,7 @@ function startPoolIdleReaper() {
 }
 
 // Spawn an additional dashboard backend pinned to a named profile. Mirrors the
-// local-spawn portion of startHermes() but without the boot-progress UI,
+// local-spawn portion of startQiQiClaw() but without the boot-progress UI,
 // bootstrap, or remote handling (those belong to the primary backend only).
 async function spawnPoolBackend(profile, entry) {
   // A profile may point at its OWN remote backend (connection.json
@@ -4350,7 +4347,7 @@ async function spawnPoolBackend(profile, entry) {
   // tolerate.
   const remote = await resolveRemoteBackend(profile)
   if (remote) {
-    await waitForHermes(remote.baseUrl, remote.token)
+    await waitForQiQiClaw(remote.baseUrl, remote.token)
     return {
       ...remote,
       profile,
@@ -4363,9 +4360,9 @@ async function spawnPoolBackend(profile, entry) {
   const token = crypto.randomBytes(32).toString('base64url')
   // --profile wins over the inherited HERMES_HOME env (see _apply_profile_override
   // step 3 in hermes_cli/main.py), so the child re-homes to this profile.
-  const dashboardArgs = ['--profile', profile, 'dashboard', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
-  const backend = await ensureRuntime(resolveHermesBackend(dashboardArgs))
-  const hermesCwd = resolveHermesCwd()
+  const dashboardArgs = ['--profile', profile, 'dashboard', '--tui', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
+  const backend = await ensureRuntime(resolveQiQiClawBackend(dashboardArgs))
+  const hermesCwd = resolveQiQiClawCwd()
   const webDist = resolveWebDist()
 
   rememberLog(`Starting QiQiClaw backend for profile "${profile}" via ${backend.label}`)
@@ -4377,6 +4374,7 @@ async function spawnPoolBackend(profile, entry) {
       HERMES_HOME,
       ...backend.env,
       HERMES_DASHBOARD_SESSION_TOKEN: token,
+      QIQICLAW_DASHBOARD_SESSION_TOKEN: token,
       // Marks this dashboard backend as desktop-spawned so it runs the cron
       // scheduler tick loop (the gateway isn't running under the app).
       QIQICLAW_DESKTOP: '1',
@@ -4412,7 +4410,7 @@ async function spawnPoolBackend(profile, entry) {
   })
 
   const baseUrl = `http://127.0.0.1:${port}`
-  await Promise.race([waitForHermes(baseUrl, token), startFailed])
+  await Promise.race([waitForQiQiClaw(baseUrl, token), startFailed])
   ready = true
 
   return {
@@ -4447,9 +4445,126 @@ function stopAllPoolBackends() {
   }
 }
 
-async function startHermes() {
+function gatewayAutostartEnabled() {
+  const raw = process.env.QIQICLAW_DESKTOP_AUTOSTART_GATEWAY || process.env.HERMES_DESKTOP_AUTOSTART_GATEWAY
+  return !raw || !/^(0|false|no|off)$/i.test(String(raw).trim())
+}
+
+function cliArgsForBackend(backend, profile, args) {
+  const profileArgs = profile ? ['--profile', profile] : []
+  if (backend.kind === 'python') {
+    return ['-m', 'qiqiclaw_cli.main', ...profileArgs, ...args]
+  }
+  return [...profileArgs, ...args]
+}
+
+function runQiQiClawCliJson(backend, profile, args, env, cwd, timeoutMs = 12_000) {
+  return new Promise(resolve => {
+    const child = spawn(backend.command, cliArgsForBackend(backend, profile, args), {
+      cwd,
+      env,
+      shell: backend.shell,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      try {
+        child.kill()
+      } catch {
+        void 0
+      }
+      resolve({ ok: false, stdout, stderr: `${stderr}\nTimed out after ${timeoutMs}ms` })
+    }, timeoutMs)
+    if (typeof timer.unref === 'function') timer.unref()
+
+    child.stdout.on('data', chunk => {
+      stdout = (stdout + chunk.toString()).slice(-128 * 1024)
+    })
+    child.stderr.on('data', chunk => {
+      stderr = (stderr + chunk.toString()).slice(-128 * 1024)
+    })
+    child.once('error', error => {
+      clearTimeout(timer)
+      resolve({ ok: false, stdout, stderr: error.message })
+    })
+    child.once('exit', code => {
+      clearTimeout(timer)
+      resolve({ ok: code === 0, stdout, stderr })
+    })
+  })
+}
+
+function spawnQiQiClawCliLogged(backend, profile, args, env, cwd, label) {
+  const child = spawn(backend.command, cliArgsForBackend(backend, profile, args), {
+    cwd,
+    env,
+    shell: backend.shell,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  child.stdout.on('data', chunk => rememberLog(`[${label}] ${chunk}`))
+  child.stderr.on('data', chunk => rememberLog(`[${label}] ${chunk}`))
+  child.once('error', error => {
+    rememberLog(`[${label}] failed to start: ${error.message}`)
+    if (gatewayAutostartProcess === child) gatewayAutostartProcess = null
+  })
+  child.once('exit', (code, signal) => {
+    rememberLog(`[${label}] exited (${signal || code})`)
+    if (gatewayAutostartProcess === child) gatewayAutostartProcess = null
+  })
+  return child
+}
+
+function parseJsonObjectFromOutput(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    const start = String(text || '').indexOf('{')
+    const end = String(text || '').lastIndexOf('}')
+    if (start >= 0 && end > start) {
+      return JSON.parse(String(text).slice(start, end + 1))
+    }
+    throw new Error('no JSON object found')
+  }
+}
+
+async function autostartConfiguredGateway(backend, profile, env, cwd) {
+  if (!gatewayAutostartEnabled()) {
+    rememberLog('[gateway-autostart] disabled by environment')
+    return
+  }
+  if (gatewayAutostartInFlight || gatewayAutostartProcess) {
+    return
+  }
+
+  gatewayAutostartInFlight = true
+  try {
+    const status = await runQiQiClawCliJson(backend, profile, ['gateway', 'setup-status'], env, cwd)
+    if (status.ok) {
+      try {
+        const parsed = parseJsonObjectFromOutput(status.stdout)
+        if (parsed && parsed.running) {
+          rememberLog('[gateway-autostart] gateway already running')
+          return
+        }
+      } catch (error) {
+        rememberLog(`[gateway-autostart] could not parse setup-status JSON: ${error.message}`)
+      }
+    } else {
+      rememberLog(`[gateway-autostart] setup-status failed; attempting start anyway: ${status.stderr || 'unknown error'}`)
+    }
+
+    rememberLog('[gateway-autostart] starting QiQiClaw messaging gateway')
+    gatewayAutostartProcess = spawnQiQiClawCliLogged(backend, profile, ['gateway', 'start'], env, cwd, 'gateway-autostart')
+  } finally {
+    gatewayAutostartInFlight = false
+  }
+}
+
+async function startQiQiClaw() {
   // Latched-failure short-circuit: once bootstrap has failed in this
-  // process, every subsequent startHermes() call re-throws the same error
+  // process, every subsequent startQiQiClaw() call re-throws the same error
   // without re-running install.ps1. This prevents the renderer's
   // ensureGatewayOpen retries (and any other getConnection callers) from
   // restarting a 5-10 minute install loop while the user is still reading
@@ -4466,7 +4581,7 @@ async function startHermes() {
     const remote = await resolveRemoteBackend(primaryProfileKey())
     if (remote) {
       await advanceBootProgress('backend.remote', `Connecting to remote QiQiClaw backend at ${remote.baseUrl}`, 24)
-      await waitForHermes(remote.baseUrl, remote.token)
+      await waitForQiQiClaw(remote.baseUrl, remote.token)
       updateBootProgress({
         phase: 'backend.ready',
         message: 'Remote QiQiClaw backend is ready',
@@ -4489,7 +4604,7 @@ async function startHermes() {
     await advanceBootProgress('backend.port', 'Finding an open local port', 16)
     const port = await pickPort()
     const token = crypto.randomBytes(32).toString('base64url')
-    const dashboardArgs = ['dashboard', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
+    const dashboardArgs = ['dashboard', '--tui', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
     // Pin the desktop's chosen profile via the global --profile flag. This is
     // deterministic (it wins over the sticky ~/.qiqiclaw/active_profile file) and
     // resolves HERMES_HOME the same way `hermes -p <name>` does on the CLI. An
@@ -4500,34 +4615,33 @@ async function startHermes() {
       dashboardArgs.unshift('--profile', activeProfile)
     }
     await advanceBootProgress('backend.runtime', 'Resolving QiQiClaw runtime', 28)
-    const backend = await ensureRuntime(resolveHermesBackend(dashboardArgs))
-    const hermesCwd = resolveHermesCwd()
+    const backend = await ensureRuntime(resolveQiQiClawBackend(dashboardArgs))
+    const hermesCwd = resolveQiQiClawCwd()
     const webDist = resolveWebDist()
 
     await advanceBootProgress('backend.spawn', `Starting QiQiClaw backend via ${backend.label}`, 84)
     rememberLog(`Starting QiQiClaw backend via ${backend.label}`)
 
+    const backendEnv = {
+      ...process.env,
+      // Explicitly pin both names so Python resolves the same home as the
+      // desktop. QIQICLAW_HOME is canonical; HERMES_HOME keeps legacy imports
+      // and entry points on the same directory.
+      HERMES_HOME,
+      QIQICLAW_HOME: HERMES_HOME,
+      ...backend.env,
+      HERMES_DASHBOARD_SESSION_TOKEN: token,
+      QIQICLAW_DASHBOARD_SESSION_TOKEN: token,
+      // Marks this dashboard backend as desktop-spawned so it runs the cron
+      // scheduler tick loop (the gateway isn't running under the app).
+      QIQICLAW_DESKTOP: '1',
+      HERMES_DESKTOP: '1',
+      HERMES_WEB_DIST: webDist
+    }
+
     hermesProcess = spawn(backend.command, backend.args, {
       cwd: hermesCwd,
-      env: {
-        ...process.env,
-        // Explicitly pin HERMES_HOME for the child so Python's get_hermes_home()
-        // resolves to the SAME location our resolveHermesHome() picked. Without
-        // this pin, Python falls back to ~/.qiqiclaw on every platform — fine on
-        // mac/linux (where our default matches), but on Windows our default is
-        // %LOCALAPPDATA%\hermes, which differs from C:\Users\<u>\.hermes.
-        // Mismatch would split config / sessions / .env / logs across two
-        // directories. install.ps1 sets HERMES_HOME via setx; the desktop
-        // can't reliably do that, so we set it inline for every spawn.
-        HERMES_HOME,
-        ...backend.env,
-        HERMES_DASHBOARD_SESSION_TOKEN: token,
-        // Marks this dashboard backend as desktop-spawned so it runs the cron
-        // scheduler tick loop (the gateway isn't running under the app).
-        QIQICLAW_DESKTOP: '1',
-        HERMES_DESKTOP: '1',
-        HERMES_WEB_DIST: webDist
-      },
+      env: backendEnv,
       shell: backend.shell,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -4573,7 +4687,7 @@ async function startHermes() {
         )
         rejectBackendStart?.(
           new Error(
-            `QiQiClaw backend exited before it became ready (${signal || code}). Log: ${DESKTOP_LOG_PATH}\n${recentHermesLog()}`
+            `QiQiClaw backend exited before it became ready (${signal || code}). Log: ${DESKTOP_LOG_PATH}\n${recentQiQiClawLog()}`
           )
         )
       }
@@ -4581,7 +4695,7 @@ async function startHermes() {
 
     const baseUrl = `http://127.0.0.1:${port}`
     await advanceBootProgress('backend.wait', 'Waiting for QiQiClaw backend to become ready', 90)
-    await Promise.race([waitForHermes(baseUrl, token), backendStartFailed])
+    await Promise.race([waitForQiQiClaw(baseUrl, token), backendStartFailed])
     backendReady = true
     updateBootProgress({
       phase: 'backend.ready',
@@ -4590,6 +4704,7 @@ async function startHermes() {
       running: true,
       error: null
     })
+    void autostartConfiguredGateway(backend, activeProfile, backendEnv, hermesCwd)
 
     return {
       baseUrl,
@@ -4742,7 +4857,7 @@ function createWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     broadcastBootProgress()
     sendWindowStateChanged()
-    startHermes().catch(error => rememberLog(error.stack || error.message))
+    startQiQiClaw().catch(error => rememberLog(error.stack || error.message))
   })
 }
 
@@ -4779,10 +4894,10 @@ ipcMain.handle('hermes:connection:revalidate', async () => {
     return { ok: true, rebuilt: false }
   } catch {
     // Unreachable remote: drop the stale cache so the renderer's next reconnect
-    // tick rebuilds a fresh, reachable descriptor. resetHermesConnection only
+    // tick rebuilds a fresh, reachable descriptor. resetQiQiClawConnection only
     // nulls connectionPromise for a remote (no child to SIGTERM).
     rememberLog('Cached remote QiQiClaw backend failed liveness probe; dropping stale connection.')
-    resetHermesConnection()
+    resetQiQiClawConnection()
     return { ok: true, rebuilt: true }
   }
 })
@@ -4793,7 +4908,7 @@ ipcMain.handle('hermes:backend:touch', async (_event, profile) => {
 ipcMain.handle('hermes:gateway:ws-url', async (_event, profile) => freshGatewayWsUrl(profile))
 ipcMain.handle('hermes:bootstrap:reset', async () => {
   // Renderer's "Reload and retry" path. Clear the latched failure and
-  // reset connection state so the next startHermes() call restarts the
+  // reset connection state so the next startQiQiClaw() call restarts the
   // full backend flow (including a fresh runBootstrap pass).
   rememberLog('[bootstrap] reset requested by renderer; clearing latched failure')
   bootstrapFailure = null
@@ -4812,7 +4927,7 @@ ipcMain.handle('hermes:bootstrap:reset', async () => {
 })
 ipcMain.handle('hermes:bootstrap:repair', async () => {
   // Forceful repair: drop the bootstrap-complete marker so the next
-  // startHermes() re-runs the full installer (refreshing a broken/partial
+  // startQiQiClaw() re-runs the full installer (refreshing a broken/partial
   // venv), and clear any latched failure + live connection. The renderer
   // reloads afterwards to re-drive the boot flow from scratch.
   rememberLog('[bootstrap] repair requested by renderer; clearing marker + latched failure')
@@ -4824,7 +4939,7 @@ ipcMain.handle('hermes:bootstrap:repair', async () => {
     rememberLog(`[bootstrap] failed to remove marker during repair: ${error.message}`)
   }
   bootstrapFailure = null
-  resetHermesConnection()
+  resetQiQiClawConnection()
   return { ok: true }
 })
 ipcMain.handle('hermes:bootstrap:cancel', async () => {
@@ -5199,7 +5314,7 @@ ipcMain.handle('hermes:openExternal', (_event, url) => {
 
 // User-configurable default project directory. The renderer reads this on
 // settings mount and seeds the value into the picker; writing back persists
-// it via writeDefaultProjectDir so resolveHermesCwd picks it up on the next
+// it via writeDefaultProjectDir so resolveQiQiClawCwd picks it up on the next
 // session spawn (no app restart needed).
 ipcMain.handle('hermes:setting:defaultProjectDir:get', async () => ({
   dir: readDefaultProjectDir(),
@@ -5336,7 +5451,7 @@ function terminalShellEnv() {
 
   // Strip color/theme-detection vars that ride along when Electron is launched
   // from a non-tty agent shell (Cursor's runner sets NO_COLOR/FORCE_COLOR=0
-  // /TERM=dumb; some terminals set COLORFGBG which would flip Hermes' TUI into
+  // /TERM=dumb; some terminals set COLORFGBG which would flip QiQiClaw's TUI into
   // light-mode). Our PTY is a real xterm-compat terminal — force truecolor.
   delete env.NO_COLOR
   delete env.FORCE_COLOR
@@ -5524,12 +5639,12 @@ ipcMain.handle('hermes:updates:branch:set', async (_event, name) => {
   return { branch }
 })
 
-// Resolve the canonical Hermes version (the one `release.py` bumps in
+// Resolve the canonical QiQiClaw version (the one `release.py` bumps in
 // hermes_cli/__init__.py + pyproject.toml) so the desktop About panel shows the
-// real Hermes version instead of the Electron app's own package.json version,
+// real QiQiClaw version instead of the Electron app's own package.json version,
 // which historically drifted (stuck at 0.0.2). Falls back to app.getVersion()
 // when the source tree can't be read (e.g. a packaged build without the repo).
-function resolveHermesVersion() {
+function resolveQiQiClawVersion() {
   try {
     const root = resolveUpdateRoot()
     const initPath = path.join(root, 'hermes_cli', '__init__.py')
@@ -5546,21 +5661,21 @@ function resolveHermesVersion() {
   return app.getVersion()
 }
 
-// Re-resolve the live Hermes version and push it into the native About panel
+// Re-resolve the live QiQiClaw version and push it into the native About panel
 // just before showing it, so an in-place `qiqiclaw update` is reflected without
 // an app restart. macOS only — `showAboutPanel()` is a no-op elsewhere, and the
 // other platforms don't use this menu item.
 function showAboutPanelFresh() {
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
-    applicationVersion: resolveHermesVersion(),
-    copyright: 'Copyright © 2026 QiQiClaw'
+    applicationVersion: resolveQiQiClawVersion(),
+    copyright: 'Copyright © 2026 '
   })
   app.showAboutPanel()
 }
 
 ipcMain.handle('hermes:version', async () => ({
-  appVersion: resolveHermesVersion(),
+  appVersion: resolveQiQiClawVersion(),
   electronVersion: process.versions.electron,
   nodeVersion: process.versions.node,
   platform: process.platform,
@@ -5593,7 +5708,7 @@ async function getUninstallSummary() {
   // probe fails — the renderer still needs *something* to render options from.
   const fallback = () => ({
     hermes_home: HERMES_HOME,
-    agent_installed: isHermesSourceRoot(agentRoot) && fileExists(py),
+    agent_installed: isQiQiClawSourceRoot(agentRoot) && fileExists(py),
     gui_installed: true,
     source_built_artifacts: [],
     packaged_app_paths: [],

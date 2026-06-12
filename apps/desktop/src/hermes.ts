@@ -8,13 +8,15 @@ import type {
   AudioTranscriptionResponse,
   AuxiliaryModelsResponse,
   ConfigSchemaResponse,
+  CredentialPoolResponse,
+  ModelDiscoveryResponse,
   CronJob,
   CronJobCreatePayload,
   CronJobUpdates,
   ElevenLabsVoicesResponse,
   EnvVarInfo,
-  HermesConfig,
-  HermesConfigRecord,
+  QiQiClawConfig,
+  QiQiClawConfigRecord,
   LogsResponse,
   MessagingPlatformsResponse,
   MessagingPlatformTestResponse,
@@ -22,6 +24,8 @@ import type {
   ModelAssignmentRequest,
   ModelAssignmentResponse,
   ModelInfoResponse,
+  ProviderCatalogResponse,
+  ModelRouteValidationResponse,
   ModelOptionsResponse,
   OAuthPollResponse,
   OAuthProvidersResponse,
@@ -29,6 +33,7 @@ import type {
   OAuthSubmitResponse,
   PaginatedSessions,
   ProfileCreatePayload,
+  SavedModel,
   ProfileSetupCommand,
   ProfileSoul,
   ProfilesResponse,
@@ -58,6 +63,10 @@ export type {
   AuxiliaryModelsResponse,
   ConfigFieldSchema,
   ConfigSchemaResponse,
+  CredentialPoolEntry,
+  CredentialPoolProvider,
+  CredentialPoolResponse,
+  ModelDiscoveryResponse,
   CronJob,
   CronJobCreatePayload,
   CronJobSchedule,
@@ -66,8 +75,8 @@ export type {
   ElevenLabsVoicesResponse,
   EnvVarInfo,
   GatewayReadyPayload,
-  HermesConfig,
-  HermesConfigRecord,
+  QiQiClawConfig,
+  QiQiClawConfigRecord,
   LogsResponse,
   MessagingEnvVarInfo,
   MessagingHomeChannel,
@@ -78,11 +87,15 @@ export type {
   ModelAssignmentRequest,
   ModelAssignmentResponse,
   ModelInfoResponse,
+  ProviderCatalogEntry,
+  ProviderCatalogResponse,
+  ModelRouteValidationResponse,
   ModelOptionProvider,
   ModelOptionsResponse,
   PaginatedSessions,
   ProfileCreatePayload,
   ProfileInfo,
+  SavedModel,
   ProfileSetupCommand,
   ProfileSoul,
   ProfilesResponse,
@@ -102,7 +115,7 @@ export type {
   ToolsetInfo
 } from '@/types/hermes'
 
-export class HermesGateway extends JsonRpcGatewayClient {
+export class QiQiClawGateway extends JsonRpcGatewayClient {
   constructor() {
     super({
       closedErrorMessage: 'QiQiClaw gateway connection closed',
@@ -286,35 +299,35 @@ export function getLogs(params: {
   })
 }
 
-export function getHermesConfig(): Promise<HermesConfig> {
-  return window.hermesDesktop.api<HermesConfig>({
+export function getQiQiClawConfig(): Promise<QiQiClawConfig> {
+  return window.hermesDesktop.api<QiQiClawConfig>({
     ...profileScoped(),
     path: '/api/config'
   })
 }
 
-export function getHermesConfigRecord(): Promise<HermesConfigRecord> {
-  return window.hermesDesktop.api<HermesConfigRecord>({
+export function getQiQiClawConfigRecord(): Promise<QiQiClawConfigRecord> {
+  return window.hermesDesktop.api<QiQiClawConfigRecord>({
     ...profileScoped(),
     path: '/api/config'
   })
 }
 
-export function getHermesConfigDefaults(): Promise<HermesConfigRecord> {
-  return window.hermesDesktop.api<HermesConfigRecord>({
+export function getQiQiClawConfigDefaults(): Promise<QiQiClawConfigRecord> {
+  return window.hermesDesktop.api<QiQiClawConfigRecord>({
     ...profileScoped(),
     path: '/api/config/defaults'
   })
 }
 
-export function getHermesConfigSchema(): Promise<ConfigSchemaResponse> {
+export function getQiQiClawConfigSchema(): Promise<ConfigSchemaResponse> {
   return window.hermesDesktop.api<ConfigSchemaResponse>({
     ...profileScoped(),
     path: '/api/config/schema'
   })
 }
 
-export function saveHermesConfig(config: HermesConfigRecord): Promise<{ ok: boolean }> {
+export function saveQiQiClawConfig(config: QiQiClawConfigRecord): Promise<{ ok: boolean }> {
   return window.hermesDesktop.api<{ ok: boolean }>({
     ...profileScoped(),
     path: '/api/config',
@@ -366,6 +379,99 @@ export function revealEnvVar(key: string): Promise<{ key: string; value: string 
     path: '/api/env/reveal',
     method: 'POST',
     body: { key }
+  })
+}
+
+export function getCredentialPool(): Promise<CredentialPoolResponse> {
+  return window.hermesDesktop.api<CredentialPoolResponse>({
+    ...profileScoped(),
+    path: '/api/credentials/pool'
+  })
+}
+
+export function getProviderCatalog(): Promise<ProviderCatalogResponse> {
+  return window.hermesDesktop.api<ProviderCatalogResponse>({
+    ...profileScoped(),
+    path: '/api/providers/catalog'
+  })
+}
+
+export function discoverProviderModels(body: {
+  base_url?: string
+  credential_index?: number
+  provider: string
+}): Promise<ModelDiscoveryResponse> {
+  return window.hermesDesktop.api<ModelDiscoveryResponse>({
+    ...profileScoped(),
+    path: '/api/models/discover',
+    method: 'POST',
+    body
+  })
+}
+
+export function addCredentialPoolEntry(body: {
+  api_key: string
+  base_url?: string
+  label?: string
+  provider: string
+}): Promise<{ count: number; ok: boolean; provider: string }> {
+  return window.hermesDesktop.api<{ count: number; ok: boolean; provider: string }>({
+    ...profileScoped(),
+    path: '/api/credentials/pool',
+    method: 'POST',
+    body
+  })
+}
+
+export function removeCredentialPoolEntry(
+  provider: string,
+  index: number
+): Promise<{ count: number; ok: boolean; provider: string }> {
+  return window.hermesDesktop.api<{ count: number; ok: boolean; provider: string }>({
+    ...profileScoped(),
+    path: `/api/credentials/pool/${encodeURIComponent(provider)}/${encodeURIComponent(String(index))}`,
+    method: 'DELETE'
+  })
+}
+
+export function validateSavedModel(
+  id: string,
+  body: { credential_index?: number } = {}
+): Promise<{
+  checked?: Array<{ index: number; message: string; ok: boolean }>
+  credential_index?: number
+  message: string
+  model: string
+  ok: boolean
+  provider: string
+}> {
+  return window.hermesDesktop.api<{
+    checked?: Array<{ index: number; message: string; ok: boolean }>
+    credential_index?: number
+    message: string
+    model: string
+    ok: boolean
+    provider: string
+  }>({
+    ...profileScoped(),
+    path: `/api/models/library/${encodeURIComponent(id)}/validate`,
+    method: 'POST',
+    body
+  })
+}
+
+export function validateModelRoute(body: {
+  base_url?: string
+  credential_index?: number
+  model: string
+  name?: string
+  provider: string
+}): Promise<ModelRouteValidationResponse> {
+  return window.hermesDesktop.api<ModelRouteValidationResponse>({
+    ...profileScoped(),
+    path: '/api/models/route/validate',
+    method: 'POST',
+    body
   })
 }
 
@@ -623,6 +729,53 @@ export function getGlobalModelOptions(): Promise<ModelOptionsResponse> {
   })
 }
 
+export function listSavedModels(): Promise<{ models: SavedModel[] }> {
+  return window.hermesDesktop.api<{ models: SavedModel[] }>({
+    ...profileScoped(),
+    path: '/api/models/library'
+  })
+}
+
+export function addSavedModel(body: {
+  api_key?: string
+  base_url?: string
+  model: string
+  name: string
+  provider: string
+}): Promise<{ deduped: boolean; model: SavedModel; ok: boolean }> {
+  return window.hermesDesktop.api<{ deduped: boolean; model: SavedModel; ok: boolean }>({
+    ...profileScoped(),
+    path: '/api/models/library',
+    method: 'POST',
+    body
+  })
+}
+
+export function updateSavedModel(
+  id: string,
+  body: {
+    base_url?: string
+    model: string
+    name: string
+    provider: string
+  }
+): Promise<{ model: SavedModel; ok: boolean }> {
+  return window.hermesDesktop.api<{ model: SavedModel; ok: boolean }>({
+    ...profileScoped(),
+    path: `/api/models/library/${encodeURIComponent(id)}`,
+    method: 'PUT',
+    body
+  })
+}
+
+export function removeSavedModel(id: string): Promise<{ ok: boolean }> {
+  return window.hermesDesktop.api<{ ok: boolean }>({
+    ...profileScoped(),
+    path: `/api/models/library/${encodeURIComponent(id)}`,
+    method: 'DELETE'
+  })
+}
+
 export interface RecommendedDefaultModel {
   provider: string
   model: string
@@ -642,7 +795,8 @@ export function getRecommendedDefaultModel(provider: string): Promise<Recommende
 
 export function setGlobalModel(
   provider: string,
-  model: string
+  model: string,
+  base_url?: string
 ): Promise<{ ok: boolean; provider: string; model: string }> {
   return window.hermesDesktop.api<{ ok: boolean; provider: string; model: string }>({
     ...profileScoped(),
@@ -651,7 +805,8 @@ export function setGlobalModel(
     body: {
       scope: 'main',
       provider,
-      model
+      model,
+      ...(base_url ? { base_url } : {})
     }
   })
 }
@@ -679,9 +834,9 @@ export function restartGateway(): Promise<ActionResponse> {
   })
 }
 
-export function updateHermes(): Promise<ActionResponse> {
+export function updateQiQiClaw(): Promise<ActionResponse> {
   return window.hermesDesktop.api<ActionResponse>({
-    path: '/api/hermes/update',
+    path: '/api/qiqiclaw/update',
     method: 'POST'
   })
 }

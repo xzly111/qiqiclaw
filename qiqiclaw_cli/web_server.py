@@ -21,6 +21,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from qiqiclaw_constants import ensure_project_root_on_syspath
@@ -78,7 +80,11 @@ app = FastAPI(title="QiQiClaw", version=__version__)
 # Generated fresh on every server start — dies when the process exits.
 # Injected into the SPA HTML so only the legitimate web UI can use it.
 # ---------------------------------------------------------------------------
-_SESSION_TOKEN = secrets.token_urlsafe(32)
+_SESSION_TOKEN = (
+    os.environ.get("QIQICLAW_DASHBOARD_SESSION_TOKEN")
+    or os.environ.get("HERMES_DASHBOARD_SESSION_TOKEN")
+    or secrets.token_urlsafe(32)
+)
 _SESSION_HEADER_NAME = "X-QiQi-Claw-Session-Token"
 
 # In-browser Chat tab (/chat, /api/pty, ...). Off unless
@@ -117,6 +123,7 @@ _PUBLIC_API_PATHS: frozenset = frozenset({
     "/api/config/defaults",
     "/api/config/schema",
     "/api/model/info",
+    "/api/profiles/active",
     "/api/dashboard/themes",
     "/api/dashboard/plugins",
     "/api/dashboard/plugins/rescan",
@@ -131,7 +138,7 @@ def _has_valid_session_token(request: Request) -> bool:
     accept the legacy Bearer path for backward compatibility with older
     dashboard bundles.
     """
-    for header_name in (_SESSION_HEADER_NAME, "X-Session-Token"):
+    for header_name in (_SESSION_HEADER_NAME, "X-Hermes-Session-Token", "X-Session-Token"):
         session_header = request.headers.get(header_name, "")
         if session_header and hmac.compare_digest(
             session_header.encode(),
@@ -467,6 +474,41 @@ class EnvVarReveal(BaseModel):
     key: str
 
 
+class MessagingPlatformUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    env: Dict[str, str] = {}
+    clear_env: List[str] = []
+
+
+class SavedModelUpdate(BaseModel):
+    name: str
+    provider: str
+    model: str
+    base_url: str = ""
+
+
+class SavedModelCreate(SavedModelUpdate):
+    api_key: Optional[str] = None
+
+
+class SavedModelValidateRequest(BaseModel):
+    credential_index: Optional[int] = None
+
+
+class ModelRouteValidateRequest(BaseModel):
+    provider: str
+    model: str
+    base_url: str = ""
+    name: Optional[str] = None
+    credential_index: Optional[int] = None
+
+
+class ModelDiscoverRequest(BaseModel):
+    provider: str
+    base_url: str = ""
+    credential_index: Optional[int] = None
+
+
 class AudioTranscriptionRequest(BaseModel):
     data_url: str
     mime_type: Optional[str] = None
@@ -484,6 +526,7 @@ class ModelAssignment(BaseModel):
     provider: str
     model: str
     task: str = ""
+    base_url: str = ""
 
 
 class LangGraphRunRequest(BaseModel):
@@ -504,6 +547,33 @@ class OrchestrateRunRequest(BaseModel):
     toolsets: Optional[Any] = None
     max_steps: int = 1
     dry_run: bool = True
+
+
+class CredentialPoolAdd(BaseModel):
+    provider: str
+    api_key: str
+    label: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+def _apply_main_model_assignment(
+    model_cfg: Any, provider: str, model: str, base_url: str = ""
+) -> dict:
+    """Apply a main-slot model assignment without losing custom endpoints."""
+    if not isinstance(model_cfg, dict):
+        model_cfg = {}
+    prev_provider = str(model_cfg.get("provider") or "").strip().lower()
+    new_provider = provider.strip().lower()
+    if new_provider != "custom" and not new_provider.startswith("custom:"):
+        base_url = ""
+    model_cfg["provider"] = provider
+    model_cfg["default"] = model
+    if base_url.strip():
+        model_cfg["base_url"] = base_url.strip()
+    elif model_cfg.get("base_url") and new_provider != prev_provider:
+        model_cfg["base_url"] = ""
+    model_cfg.pop("context_length", None)
+    return model_cfg
 
 
 _AUDIO_MIME_EXTENSIONS: Dict[str, str] = {
@@ -540,7 +610,35 @@ except (ValueError, TypeError):
     _GATEWAY_HEALTH_TIMEOUT = 3.0
 
 
-def _probe_gateway_health() -> tuple[bool, dict | None]:
+def _gateway_health_candidate_urls() -> list[str]:
+    urls: list[str] = []
+
+    def add_url(value: Any) -> None:
+        if not value:
+            return
+        url = str(value).strip().rstrip("/")
+        if url and url not in urls:
+            urls.append(url)
+
+    add_url(_GATEWAY_HEALTH_URL)
+
+    try:
+        from qiqiclaw_cli.gateway import gateway_setup_status
+
+        api_server = gateway_setup_status().get("api_server") or {}
+        if api_server.get("enabled"):
+            host = str(api_server.get("host") or "127.0.0.1").strip()
+            if host in ("0.0.0.0", "::"):
+                host = "127.0.0.1"
+            port = int(api_server.get("port") or 8642)
+            add_url(f"http://{host}:{port}")
+    except Exception:
+        pass
+
+    return urls
+
+
+def _probe_gateway_health() -> tuple[bool, dict | None, str | None]:
     """Probe the gateway via its HTTP health endpoint (cross-container).
 
     Uses ``/health/detailed`` first (returns full state), falling back to
@@ -551,29 +649,34 @@ def _probe_gateway_health() -> tuple[bool, dict | None]:
     - ``http://gateway:8642/health``         (explicit health path)
     - ``http://gateway:8642/health/detailed`` (explicit detailed path)
 
+    If no explicit ``GATEWAY_HEALTH_URL`` is set, it derives the local API
+    server address from ``qiqiclaw setup gateway`` state.
+
     This is a **blocking** call — run via ``run_in_executor`` from async code.
     """
-    if not _GATEWAY_HEALTH_URL:
-        return False, None
+    candidates = _gateway_health_candidate_urls()
+    if not candidates:
+        return False, None, None
 
     # Normalise to base URL so we always probe the right paths regardless of
     # whether the user included /health or /health/detailed in the env var.
-    base = _GATEWAY_HEALTH_URL.rstrip("/")
-    if base.endswith("/health/detailed"):
-        base = base[: -len("/health/detailed")]
-    elif base.endswith("/health"):
-        base = base[: -len("/health")]
+    for candidate in candidates:
+        base = candidate.rstrip("/")
+        if base.endswith("/health/detailed"):
+            base = base[: -len("/health/detailed")]
+        elif base.endswith("/health"):
+            base = base[: -len("/health")]
 
-    for path in (f"{base}/health/detailed", f"{base}/health"):
-        try:
-            req = urllib.request.Request(path, method="GET")
-            with urllib.request.urlopen(req, timeout=_GATEWAY_HEALTH_TIMEOUT) as resp:
-                if resp.status == 200:
-                    body = json.loads(resp.read())
-                    return True, body
-        except Exception:
-            continue
-    return False, None
+        for path in (f"{base}/health/detailed", f"{base}/health"):
+            try:
+                req = urllib.request.Request(path, method="GET")
+                with urllib.request.urlopen(req, timeout=_GATEWAY_HEALTH_TIMEOUT) as resp:
+                    if resp.status == 200:
+                        body = json.loads(resp.read())
+                        return True, body, base
+            except Exception:
+                continue
+    return False, None, None
 
 
 @app.get("/api/status")
@@ -581,16 +684,17 @@ async def get_status():
     current_ver, latest_ver = check_config_version()
 
     # --- Gateway liveness detection ---
-    # Try local PID check first (same-host).  If that fails and a remote
-    # GATEWAY_HEALTH_URL is configured, probe the gateway over HTTP so the
-    # dashboard works when the gateway runs in a separate container.
+    # Try local PID check first (same-host). If that fails, probe the gateway
+    # over HTTP via either GATEWAY_HEALTH_URL or the API server configured by
+    # `qiqiclaw setup gateway`.
     gateway_pid = get_running_pid()
     gateway_running = gateway_pid is not None
     remote_health_body: dict | None = None
 
-    if not gateway_running and _GATEWAY_HEALTH_URL:
+    detected_health_url = _GATEWAY_HEALTH_URL
+    if not gateway_running:
         loop = asyncio.get_event_loop()
-        alive, remote_health_body = await loop.run_in_executor(
+        alive, remote_health_body, detected_health_url = await loop.run_in_executor(
             None, _probe_gateway_health
         )
         if alive:
@@ -673,7 +777,7 @@ async def get_status():
         "latest_config_version": latest_ver,
         "gateway_running": gateway_running,
         "gateway_pid": gateway_pid,
-        "gateway_health_url": _GATEWAY_HEALTH_URL,
+        "gateway_health_url": detected_health_url,
         "gateway_state": gateway_state,
         "gateway_platforms": gateway_platforms,
         "gateway_exit_reason": gateway_exit_reason,
@@ -785,6 +889,12 @@ async def update_hermes():
     }
 
 
+@app.post("/api/hermes/update")
+async def update_hermes_compat():
+    """Backward-compatible alias for older desktop builds."""
+    return await update_hermes()
+
+
 @app.get("/api/actions/{name}/status")
 async def get_action_status(name: str, lines: int = 200):
     """Tail an action log and report whether the process is still running."""
@@ -814,20 +924,118 @@ async def get_action_status(name: str, lines: int = 200):
     }
 
 
+def _archive_matches(session: Dict[str, Any], archived: str) -> bool:
+    is_archived = bool(session.get("archived"))
+    if archived == "only":
+        return is_archived
+    if archived == "exclude":
+        return not is_archived
+    return True
+
+
+def _session_matches_filters(
+    session: Dict[str, Any],
+    *,
+    min_message_count: int,
+    archived: str,
+    source: Optional[str],
+    exclude_sources: Optional[List[str]],
+) -> bool:
+    if int(session.get("message_count") or 0) < min_message_count:
+        return False
+    if not _archive_matches(session, archived):
+        return False
+    session_source = session.get("source")
+    if source and session_source != source:
+        return False
+    if exclude_sources and session_source in exclude_sources:
+        return False
+    return True
+
+
+def _sort_sessions_for_dashboard(sessions: List[Dict[str, Any]], order: str) -> None:
+    sort_key = "last_active" if order == "recent" else "started_at"
+    sessions.sort(
+        key=lambda s: (s.get(sort_key) or s.get("started_at") or 0, s.get("started_at") or 0, s.get("id") or ""),
+        reverse=True,
+    )
+
+
+def _list_sessions_compat(
+    db,
+    *,
+    limit: int,
+    offset: int,
+    min_messages: int,
+    archived: str,
+    order: str,
+    source: Optional[str],
+    exclude_sources: Optional[str],
+) -> tuple[List[Dict[str, Any]], int]:
+    min_message_count = max(0, min_messages)
+    exclude_list = [s.strip() for s in (exclude_sources or "").split(",") if s.strip()]
+    fetch_limit = min(max(limit + offset, limit, 100), 5000)
+
+    try:
+        rows = db.list_sessions_rich(
+            source=source or None,
+            exclude_sources=exclude_list or None,
+            limit=fetch_limit,
+            offset=0,
+            order_by_last_active=order == "recent",
+        )
+    except TypeError:
+        rows = db.list_sessions_rich(limit=fetch_limit, offset=0, order_by_last_active=order == "recent")
+
+    filtered = [
+        s for s in rows
+        if _session_matches_filters(
+            s,
+            min_message_count=min_message_count,
+            archived=archived,
+            source=source or None,
+            exclude_sources=exclude_list or None,
+        )
+    ]
+    _sort_sessions_for_dashboard(filtered, order)
+    return filtered[offset:offset + limit], len(filtered)
+
+
 @app.get("/api/sessions")
-async def get_sessions(limit: int = 20, offset: int = 0):
+async def get_sessions(
+    limit: int = 20,
+    offset: int = 0,
+    min_messages: int = 0,
+    archived: str = "exclude",
+    order: str = "created",
+    source: Optional[str] = None,
+    exclude_sources: Optional[str] = None,
+):
+    if archived not in ("exclude", "only", "include"):
+        raise HTTPException(status_code=400, detail="archived must be one of: exclude, only, include")
+    if order not in ("created", "recent"):
+        raise HTTPException(status_code=400, detail="order must be one of: created, recent")
     try:
         from qiqiclaw_state import SessionDB
         db = SessionDB()
         try:
-            sessions = db.list_sessions_rich(limit=limit, offset=offset)
-            total = db.session_count()
+            sessions, total = _list_sessions_compat(
+                db,
+                limit=max(1, limit),
+                offset=max(0, offset),
+                min_messages=min_messages,
+                archived=archived,
+                order=order,
+                source=source,
+                exclude_sources=exclude_sources,
+            )
             now = time.time()
             for s in sessions:
                 s["is_active"] = (
                     s.get("ended_at") is None
                     and (now - s.get("last_active", s.get("started_at", 0))) < 300
                 )
+                s["archived"] = bool(s.get("archived"))
             return {"sessions": sessions, "total": total, "limit": limit, "offset": offset}
         finally:
             db.close()
@@ -926,6 +1134,869 @@ _EMPTY_MODEL_INFO: dict = {
     "effective_context_length": 0,
     "capabilities": {},
 }
+
+
+def _models_library_path() -> Path:
+    return get_qiqiclaw_home() / "models.json"
+
+
+def _read_models_library() -> List[Dict[str, Any]]:
+    path = _models_library_path()
+    try:
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    models: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        model = str(item.get("model") or "").strip()
+        provider = str(item.get("provider") or "").strip().lower()
+        if not model or not provider:
+            continue
+        name = str(item.get("name") or model).strip() or model
+        base_url = str(item.get("base_url") or item.get("baseUrl") or "").strip()
+        entry_id = str(item.get("id") or uuid.uuid4().hex).strip()
+        created_at = item.get("created_at", item.get("createdAt", int(time.time() * 1000)))
+        try:
+            created_at = int(created_at)
+        except Exception:
+            created_at = int(time.time() * 1000)
+        models.append({
+            "id": entry_id,
+            "name": name,
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+            "created_at": created_at,
+        })
+    return models
+
+
+def _write_models_library(models: List[Dict[str, Any]]) -> None:
+    path = _models_library_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(models, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _find_or_create_model_library_entry(
+    *,
+    provider: str,
+    model: str,
+    base_url: str = "",
+    name: str = "",
+) -> Tuple[Dict[str, Any], bool]:
+    model = str(model or "").strip()
+    provider = str(provider or "").strip().lower()
+    base_url = str(base_url or "").strip()
+    name = str(name or "").strip() or model
+    if not model or not provider:
+        raise HTTPException(status_code=400, detail="provider and model are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom models")
+
+    models = _read_models_library()
+    for entry in models:
+        if (
+            entry.get("provider") == provider
+            and entry.get("model") == model
+            and (entry.get("base_url") or "") == base_url
+        ):
+            return entry, True
+
+    entry = {
+        "id": uuid.uuid4().hex,
+        "name": name,
+        "provider": provider,
+        "model": model,
+        "base_url": base_url,
+        "created_at": int(time.time() * 1000),
+    }
+    models.append(entry)
+    _write_models_library(models)
+    return entry, False
+
+
+def _normalize_model_base_url(raw_url: Any) -> str:
+    return str(raw_url or "").strip().rstrip("/")
+
+
+def _model_route_host(base_url: str) -> str:
+    if not base_url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+
+        return urlparse(base_url).netloc or base_url
+    except Exception:
+        return base_url
+
+
+def _model_route_label(provider: str, base_url: str) -> str:
+    host = _model_route_host(base_url)
+    return f"{provider} · {host}" if host else provider
+
+
+def _credential_matches_model_entry(credential: Any, entry: Dict[str, Any]) -> bool:
+    if not isinstance(credential, dict):
+        return False
+    provider = str(entry.get("provider") or "").strip().lower()
+    model_base_url = _normalize_model_base_url(entry.get("base_url"))
+    credential_base_url = _normalize_model_base_url(credential.get("base_url"))
+    if provider == "custom":
+        return bool(model_base_url and credential_base_url and model_base_url == credential_base_url)
+    return not model_base_url or not credential_base_url or model_base_url == credential_base_url
+
+
+def _credential_validates_model(credential: Any, entry: Dict[str, Any]) -> bool:
+    if not _credential_matches_model_entry(credential, entry):
+        return False
+    if not isinstance(credential, dict):
+        return False
+    model = str(entry.get("model") or "").strip()
+    base_url = _normalize_model_base_url(entry.get("base_url"))
+    validated = credential.get("validated_models")
+    if isinstance(validated, dict):
+        state = validated.get(model)
+        if isinstance(state, dict) and state.get("status") == "ok":
+            state_base_url = _normalize_model_base_url(state.get("base_url"))
+            if not base_url or not state_base_url or state_base_url == base_url:
+                return True
+    return credential.get("last_status") == "ok" and str(credential.get("last_model") or "") == model
+
+
+def _find_verified_credential(entry: Dict[str, Any]) -> Optional[Tuple[int, Dict[str, Any]]]:
+    from qiqiclaw_cli.auth import read_credential_pool
+
+    provider = str(entry.get("provider") or "").strip().lower()
+    pool_entries = read_credential_pool(provider)
+    if not isinstance(pool_entries, list):
+        return None
+    for index, credential in enumerate(pool_entries, start=1):
+        if _credential_validates_model(credential, entry):
+            return index, credential
+    return None
+
+
+def _validated_model_base_url(credential: Dict[str, Any], entry: Dict[str, Any]) -> str:
+    model = str(entry.get("model") or "").strip()
+    validated = credential.get("validated_models") if isinstance(credential, dict) else None
+    state = validated.get(model) if isinstance(validated, dict) else None
+    if isinstance(state, dict):
+        state_base_url = _normalize_model_base_url(state.get("base_url"))
+        if state_base_url:
+            return state_base_url
+    return _resolve_model_route_base_url(str(entry.get("provider") or ""), entry, credential)
+
+
+def _annotate_saved_model(entry: Dict[str, Any]) -> Dict[str, Any]:
+    annotated = dict(entry)
+    verified = _find_verified_credential(entry)
+    if verified is None:
+        annotated.update({
+            "verified": False,
+            "verification_status": "unverified",
+            "verification_message": "未找到已验证通过的匹配凭证",
+        })
+        return annotated
+    index, credential = verified
+    model = str(entry.get("model") or "").strip()
+    validated = credential.get("validated_models") if isinstance(credential, dict) else None
+    state = validated.get(model) if isinstance(validated, dict) else None
+    annotated.update({
+        "verified": True,
+        "credential_index": index,
+        "verification_status": "ok",
+        "verification_message": "凭证池验证通过",
+        "last_checked_at": state.get("checked_at") if isinstance(state, dict) else credential.get("last_checked_at"),
+        "resolved_base_url": _validated_model_base_url(credential, entry),
+    })
+    return annotated
+
+
+def _verified_model_library_entries() -> List[Tuple[Dict[str, Any], int, Dict[str, Any]]]:
+    entries: List[Tuple[Dict[str, Any], int, Dict[str, Any]]] = []
+    for entry in _read_models_library():
+        verified = _find_verified_credential(entry)
+        if verified is None:
+            continue
+        index, credential = verified
+        entries.append((entry, index, credential))
+    return entries
+
+
+def _credential_entry_from_provider_env(provider: str, model_entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    provider = str(provider or "").strip().lower()
+    base_url = str(model_entry.get("base_url") or "").strip()
+
+    if provider == "custom":
+        from qiqiclaw_cli.config import get_env_value
+
+        api_key = (get_env_value("CUSTOM_API_KEY") or "").strip()
+        if not api_key:
+            return None
+        return {
+            "id": uuid.uuid4().hex,
+            "label": "setup/env CUSTOM_API_KEY",
+            "source": "env:CUSTOM_API_KEY",
+            "auth_type": "api_key",
+            "access_token": api_key,
+            "base_url": base_url or (get_env_value("OPENAI_BASE_URL") or get_env_value("CUSTOM_BASE_URL") or "").strip(),
+            "priority": 50,
+            "request_count": 0,
+        }
+
+    try:
+        from qiqiclaw_cli.auth import PROVIDER_REGISTRY, has_usable_secret
+        from qiqiclaw_cli.config import get_env_value
+    except Exception:
+        return None
+
+    pconfig = PROVIDER_REGISTRY.get(provider)
+    if pconfig is None or getattr(pconfig, "auth_type", "") != "api_key":
+        return None
+
+    for env_var in getattr(pconfig, "api_key_env_vars", ()) or ():
+        api_key = (get_env_value(env_var) or "").strip()
+        if not has_usable_secret(api_key):
+            continue
+        base_url_env = getattr(pconfig, "base_url_env_var", "") or ""
+        configured_base_url = (get_env_value(base_url_env) or "").strip() if base_url_env else ""
+        return {
+            "id": uuid.uuid4().hex,
+            "label": f"setup/env {env_var}",
+            "source": f"env:{env_var}",
+            "auth_type": "api_key",
+            "access_token": api_key,
+            "base_url": base_url or configured_base_url or getattr(pconfig, "inference_base_url", "") or "",
+            "priority": 50,
+            "request_count": 0,
+        }
+    return None
+
+
+def _resolve_model_route_base_url(provider: str, model_entry: Dict[str, Any], credential: Dict[str, Any]) -> str:
+    base_url = _normalize_model_base_url(model_entry.get("base_url") or credential.get("base_url"))
+    if base_url:
+        return base_url
+
+    provider = str(provider or "").strip().lower()
+    if provider == "custom":
+        try:
+            from qiqiclaw_cli.config import get_env_value
+
+            return _normalize_model_base_url(get_env_value("OPENAI_BASE_URL") or get_env_value("CUSTOM_BASE_URL"))
+        except Exception:
+            return ""
+
+    try:
+        from qiqiclaw_cli.auth import PROVIDER_REGISTRY
+        from qiqiclaw_cli.config import get_env_value
+    except Exception:
+        return ""
+
+    pconfig = PROVIDER_REGISTRY.get(provider)
+    if pconfig is None:
+        return ""
+    base_url_env = getattr(pconfig, "base_url_env_var", "") or ""
+    configured_base_url = (get_env_value(base_url_env) or "").strip() if base_url_env else ""
+    return _normalize_model_base_url(configured_base_url or getattr(pconfig, "inference_base_url", "") or "")
+
+
+def _provider_catalog_rows() -> List[Dict[str, Any]]:
+    from qiqiclaw_cli.auth import PROVIDER_REGISTRY, read_credential_pool
+    from qiqiclaw_cli.config import get_env_value
+
+    pool = read_credential_pool()
+    rows: List[Dict[str, Any]] = [{
+        "slug": "custom",
+        "name": "OpenAI 兼容 / 中转站 / 本地",
+        "auth_type": "api_key",
+        "base_url": "",
+        "base_url_env_var": "CUSTOM_BASE_URL",
+        "api_key_env_vars": ["CUSTOM_API_KEY", "OPENAI_API_KEY"],
+        "key_env": "CUSTOM_API_KEY",
+        "supports_model_discovery": True,
+        "credential_count": len(pool.get("custom") or []),
+        "verified_model_count": _count_verified_pool_models(pool.get("custom") or []),
+        "source": "custom",
+    }]
+
+    for slug, pconfig in sorted(PROVIDER_REGISTRY.items(), key=lambda item: item[1].name.lower()):
+        base_url_env = getattr(pconfig, "base_url_env_var", "") or ""
+        configured_base_url = (get_env_value(base_url_env) or "").strip() if base_url_env else ""
+        base_url = configured_base_url or getattr(pconfig, "inference_base_url", "") or ""
+        api_key_env_vars = list(getattr(pconfig, "api_key_env_vars", ()) or ())
+        entries = pool.get(slug) or []
+        auth_type = getattr(pconfig, "auth_type", "") or ""
+        rows.append({
+            "slug": slug,
+            "name": getattr(pconfig, "name", slug) or slug,
+            "auth_type": auth_type,
+            "base_url": base_url,
+            "base_url_env_var": base_url_env,
+            "api_key_env_vars": api_key_env_vars,
+            "key_env": api_key_env_vars[0] if api_key_env_vars else "",
+            "supports_model_discovery": _provider_supports_model_discovery(slug, base_url, auth_type),
+            "credential_count": len(entries) if isinstance(entries, list) else 0,
+            "verified_model_count": _count_verified_pool_models(entries if isinstance(entries, list) else []),
+            "source": "setup",
+        })
+    return rows
+
+
+def _count_verified_pool_models(entries: List[Any]) -> int:
+    models: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        validated = entry.get("validated_models")
+        if not isinstance(validated, dict):
+            continue
+        for model, state in validated.items():
+            if isinstance(state, dict) and state.get("status") == "ok":
+                models.add(str(model))
+    return len(models)
+
+
+def _provider_supports_model_discovery(provider: str, base_url: str, auth_type: str) -> bool:
+    provider = str(provider or "").strip().lower()
+    if provider == "custom":
+        return True
+    if auth_type != "api_key":
+        return False
+    mode = "chat_completions"
+    try:
+        from qiqiclaw_cli.providers import determine_api_mode
+        mode = determine_api_mode(provider, base_url)
+    except Exception:
+        pass
+    return mode in {"chat_completions", "codex_responses"}
+
+
+def _discover_models_with_key(base_url: str, api_key: str) -> Tuple[bool, str, List[str]]:
+    import httpx
+
+    normalized = _normalize_model_base_url(base_url)
+    if not normalized:
+        return False, "Base URL 为空，无法发现模型", []
+    url = normalized.rstrip("/") + "/models"
+    try:
+        with httpx.Client(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
+            resp = client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                },
+            )
+    except Exception as exc:
+        return False, f"请求失败: {exc}", []
+    models = _parse_model_ids(resp)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        detail = resp.text.strip().replace("\n", " ")[:240]
+        return False, f"HTTP {resp.status_code}: {detail or resp.reason_phrase}", []
+    if not models:
+        return False, "接口可访问，但未返回模型列表", []
+    return True, f"发现 {len(models)} 个模型", models
+
+
+def _discover_models_from_pool(provider: str, base_url: str = "", credential_index: Optional[int] = None) -> Dict[str, Any]:
+    from qiqiclaw_cli.auth import read_credential_pool, write_credential_pool
+
+    provider = str(provider or "").strip().lower()
+    probe_entry = {"provider": provider, "model": "__discovery__", "base_url": base_url}
+    resolved_base_url = _resolve_model_route_base_url(provider, probe_entry, {"base_url": base_url})
+    catalog = {row["slug"]: row for row in _provider_catalog_rows()}
+    provider_row = catalog.get(provider)
+    if provider_row and not provider_row.get("supports_model_discovery"):
+        return {
+            "ok": False,
+            "provider": provider,
+            "base_url": resolved_base_url,
+            "models": [],
+            "checked": [],
+            "message": "该 provider 不支持 OpenAI 兼容 /models 发现，请手动填写模型后验证。",
+        }
+
+    entries = read_credential_pool(provider)
+    if not isinstance(entries, list) or not entries:
+        seeded = _credential_entry_from_provider_env(provider, probe_entry)
+        if seeded is not None:
+            entries = [seeded]
+        else:
+            return {
+                "ok": False,
+                "provider": provider,
+                "base_url": resolved_base_url,
+                "models": [],
+                "checked": [],
+                "message": "该 provider 的凭证池为空，请先添加 key。",
+            }
+
+    models: List[str] = []
+    saved_models: List[Dict[str, Any]] = []
+    checked: List[Dict[str, Any]] = []
+    changed = False
+    now = int(time.time() * 1000)
+    indexes = [credential_index] if credential_index else list(range(1, len(entries) + 1))
+    for index in indexes:
+        if not index or index < 1 or index > len(entries):
+            continue
+        credential = entries[index - 1]
+        if not isinstance(credential, dict):
+            continue
+        if not _credential_matches_model_entry(credential, probe_entry):
+            continue
+        api_key = str(
+            credential.get("access_token")
+            or credential.get("api_key")
+            or credential.get("runtime_api_key")
+            or ""
+        ).strip()
+        entry_base_url = _resolve_model_route_base_url(provider, probe_entry, credential)
+        if not api_key:
+            ok, message, found = False, "凭证缺少 access_token", []
+        else:
+            ok, message, found = _discover_models_with_key(entry_base_url, api_key)
+        checked.append({
+            "index": index,
+            "ok": ok,
+            "message": message,
+            "base_url": entry_base_url,
+            "count": len(found),
+        })
+        if ok and found:
+            validated = credential.get("validated_models")
+            if not isinstance(validated, dict):
+                validated = {}
+                credential["validated_models"] = validated
+            for model in found:
+                validated[model] = {
+                    "status": "ok",
+                    "checked_at": now,
+                    "base_url": entry_base_url,
+                    "message": "模型发现接口验证通过",
+                }
+            credential["last_status"] = "ok"
+            credential["last_checked_at"] = now
+            credential["last_model"] = found[0]
+            credential.pop("last_error", None)
+            changed = True
+        for model in found:
+            if model not in models:
+                models.append(model)
+                entry, deduped = _find_or_create_model_library_entry(
+                    provider=provider,
+                    model=model,
+                    base_url=entry_base_url,
+                    name=model,
+                )
+                saved_models.append({
+                    "id": entry.get("id"),
+                    "model": model,
+                    "provider": provider,
+                    "base_url": entry.get("base_url") or entry_base_url,
+                    "deduped": deduped,
+                    "credential_index": index,
+                })
+
+    if changed:
+        write_credential_pool(provider, entries)
+
+    return {
+        "ok": bool(models),
+        "provider": provider,
+        "base_url": resolved_base_url,
+        "models": models,
+        "saved_models": saved_models,
+        "saved_count": len(saved_models),
+        "checked": checked,
+        "message": f"发现并加入模型库 {len(models)} 个可用模型" if models else (checked[-1]["message"] if checked else "没有匹配的凭证可用于发现模型"),
+    }
+
+
+def _validate_model_entry_with_pool(
+    model_entry: Dict[str, Any],
+    credential_index: Optional[int] = None,
+) -> Dict[str, Any]:
+    from qiqiclaw_cli.auth import read_credential_pool, write_credential_pool
+
+    provider = str(model_entry.get("provider") or "").strip().lower()
+    model = str(model_entry.get("model") or "").strip()
+    if not provider or not model:
+        raise HTTPException(status_code=400, detail="model library entry is incomplete")
+
+    entries = read_credential_pool(provider)
+    if not isinstance(entries, list) or not entries:
+        seeded = _credential_entry_from_provider_env(provider, model_entry)
+        if seeded is None:
+            raise HTTPException(status_code=404, detail="No credential pool entries for this provider")
+        entries = [seeded]
+        write_credential_pool(provider, entries)
+
+    candidate_indexes: List[int]
+    if credential_index is not None:
+        candidate_indexes = [credential_index]
+    else:
+        candidate_indexes = list(range(1, len(entries) + 1))
+
+    checked: List[Dict[str, Any]] = []
+    changed = False
+    now = int(time.time() * 1000)
+    for index in candidate_indexes:
+        if index < 1 or index > len(entries):
+            continue
+        credential = entries[index - 1]
+        if not isinstance(credential, dict) or not _credential_matches_model_entry(credential, model_entry):
+            continue
+        api_key = str(
+            credential.get("access_token")
+            or credential.get("api_key")
+            or credential.get("runtime_api_key")
+            or ""
+        ).strip()
+        base_url = _resolve_model_route_base_url(provider, model_entry, credential)
+        if not api_key:
+            ok, message = False, "凭证缺少 access_token"
+        else:
+            ok, message = _openai_compatible_chat_probe(base_url, api_key, model)
+        validated = credential.get("validated_models")
+        if not isinstance(validated, dict):
+            validated = {}
+            credential["validated_models"] = validated
+        validated[model] = {
+            "status": "ok" if ok else "error",
+            "checked_at": now,
+            "base_url": base_url,
+            "message": message,
+        }
+        credential["last_status"] = "ok" if ok else "error"
+        credential["last_checked_at"] = now
+        credential["last_model"] = model
+        if ok:
+            credential.pop("last_error", None)
+        else:
+            credential["last_error"] = message
+        changed = True
+        checked.append({"index": index, "ok": ok, "message": message})
+        if ok:
+            break
+
+    if changed:
+        write_credential_pool(provider, entries)
+    if not checked:
+        raise HTTPException(status_code=404, detail="No matching credential pool entries for this model")
+
+    first_ok = next((item for item in checked if item["ok"]), None)
+    return {
+        "ok": first_ok is not None,
+        "model": model,
+        "provider": provider,
+        "credential_index": first_ok["index"] if first_ok else checked[-1]["index"],
+        "message": first_ok["message"] if first_ok else checked[-1]["message"],
+        "checked": checked,
+    }
+
+
+def _build_verified_model_options_payload(
+    *,
+    current_model: str = "",
+    current_provider: str = "",
+) -> Dict[str, Any]:
+    from qiqiclaw_cli.auth import get_auth_provider_display_name
+
+    providers: List[Dict[str, Any]] = []
+    rows_by_slug: Dict[str, Dict[str, Any]] = {}
+    for entry, credential_index, credential in _verified_model_library_entries():
+        provider = str(entry.get("provider") or "").strip().lower()
+        model = str(entry.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        row = rows_by_slug.get(provider)
+        if row is None:
+            row = {
+                "slug": provider,
+                "name": "OpenAI 兼容 / 中转站 / 本地" if provider == "custom" else get_auth_provider_display_name(provider),
+                "is_current": provider == str(current_provider or "").strip().lower(),
+                "is_user_defined": True,
+                "models": [],
+                "total_models": 0,
+                "authenticated": True,
+                "auth_type": "api_key",
+                "key_env": "CUSTOM_API_KEY" if provider == "custom" else "",
+                "source": "verified_model_library",
+                "model_entries": {},
+            }
+            providers.append(row)
+            rows_by_slug[provider] = row
+        models = row["models"]
+        if model not in models:
+            models.append(model)
+        resolved_base_url = _validated_model_base_url(credential, entry)
+        existing = row["model_entries"].get(model)
+        prefer_current = existing is None
+        if existing is not None and provider != "custom":
+            existing_base_url = _normalize_model_base_url(existing.get("base_url"))
+            entry_base_url = _normalize_model_base_url(entry.get("base_url"))
+            prefer_current = not entry_base_url or not existing_base_url
+        if not prefer_current:
+            row["total_models"] = len(models)
+            continue
+        row["model_entries"][model] = {
+            "id": entry.get("id"),
+            "name": entry.get("name") or model,
+            "provider": provider,
+            "model": model,
+            "base_url": resolved_base_url,
+            "endpoint_host": _model_route_host(resolved_base_url),
+            "route_label": _model_route_label(provider, resolved_base_url),
+            "credential_index": credential_index,
+            "source": "verified_model_library",
+        }
+        row["total_models"] = len(models)
+    return {
+        "providers": providers,
+        "model": current_model,
+        "provider": current_provider,
+    }
+
+
+def _openai_compatible_chat_probe(base_url: str, api_key: str, model: str) -> Tuple[bool, str]:
+    import httpx
+
+    normalized = _normalize_model_base_url(base_url)
+    if not normalized:
+        return False, "Base URL 为空，无法验证 OpenAI 兼容接口"
+    url = f"{normalized}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "你好，请简短回复你正在使用的模型名称"}],
+        "temperature": 0,
+        "max_tokens": 128,
+    }
+    try:
+        with httpx.Client(timeout=httpx.Timeout(30.0), follow_redirects=True) as client:
+            response = client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json=payload,
+            )
+    except Exception as exc:
+        return False, f"请求失败: {exc}"
+    if response.status_code < 200 or response.status_code >= 300:
+        detail = response.text.strip().replace("\n", " ")[:240]
+        return False, f"HTTP {response.status_code}: {detail or response.reason_phrase}"
+    try:
+        data = response.json()
+    except Exception:
+        return False, "接口返回不是 JSON"
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not isinstance(choices, list):
+        return False, "响应缺少 choices"
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return True, "OpenAI 兼容聊天接口验证通过"
+            if message.get("tool_calls"):
+                return True, "OpenAI 兼容聊天接口验证通过"
+        delta = choice.get("delta")
+        if isinstance(delta, dict):
+            content = delta.get("content")
+            if isinstance(content, str) and content.strip():
+                return True, "OpenAI 兼容聊天接口验证通过"
+    return False, "接口返回 2xx，但模型没有返回可用内容"
+
+
+def _env_key_for_model_library_url(raw_url: str) -> str:
+    url = (raw_url or "").strip()
+    mappings = [
+        (r"openrouter\.ai", "OPENROUTER_API_KEY"),
+        (r"anthropic\.com", "ANTHROPIC_API_KEY"),
+        (r"openai\.com", "OPENAI_API_KEY"),
+        (r"api\.deepseek\.com", "DEEPSEEK_API_KEY"),
+        (r"api\.x\.ai", "XAI_API_KEY"),
+        (r"api\.z\.ai", "GLM_API_KEY"),
+        (r"api\.moonshot\.ai", "KIMI_API_KEY"),
+        (r"api\.moonshot\.cn", "KIMI_CN_API_KEY"),
+        (r"api\.stepfun\.ai", "STEPFUN_API_KEY"),
+        (r"api\.minimax\.io", "MINIMAX_API_KEY"),
+        (r"api\.minimaxi\.com", "MINIMAX_CN_API_KEY"),
+        (r"dashscope.*aliyuncs\.com", "DASHSCOPE_API_KEY"),
+        (r"ollama\.com", "OLLAMA_API_KEY"),
+        (r"api\.together\.xyz", "TOGETHER_API_KEY"),
+        (r"api\.fireworks\.ai", "FIREWORKS_API_KEY"),
+        (r"api\.mistral\.ai", "MISTRAL_API_KEY"),
+        (r"api\.perplexity\.ai", "PERPLEXITY_API_KEY"),
+    ]
+    for pattern, key in mappings:
+        if re.search(pattern, url, re.IGNORECASE):
+            return key
+    return "CUSTOM_API_KEY"
+
+
+_CREDENTIAL_PROBES: dict[str, tuple[str, str]] = {
+    "OPENROUTER_API_KEY": ("https://openrouter.ai/api/v1/key", "bearer"),
+    "OPENAI_API_KEY": ("https://api.openai.com/v1/models", "bearer"),
+    "XAI_API_KEY": ("https://api.x.ai/v1/models", "bearer"),
+    "GEMINI_API_KEY": ("https://generativelanguage.googleapis.com/v1beta/models", "query"),
+}
+
+
+def _parse_model_ids(resp: "Any") -> List[str]:
+    try:
+        if not resp.is_success:
+            return []
+        payload = resp.json()
+    except Exception:
+        return []
+    data = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(data, list):
+        return []
+    ids: List[str] = []
+    for item in data:
+        if isinstance(item, dict):
+            model_id = str(item.get("id") or "").strip()
+        else:
+            model_id = str(item or "").strip()
+        if model_id:
+            ids.append(model_id)
+    return ids
+
+
+@app.post("/api/providers/validate")
+async def validate_provider_credential(body: EnvVarUpdate, request: Request):
+    _require_token(request)
+    import httpx
+
+    key = (body.key or "").strip()
+    value = (body.value or "").strip()
+    if not value:
+        return {"ok": False, "reachable": True, "message": "Enter a value first."}
+
+    if key == "OPENAI_BASE_URL":
+        url = value.rstrip("/") + "/models"
+        try:
+            with httpx.Client(timeout=httpx.Timeout(8.0), follow_redirects=True) as client:
+                resp = client.get(url)
+            return {"ok": True, "reachable": True, "message": "", "models": _parse_model_ids(resp)}
+        except Exception:
+            return {"ok": False, "reachable": False, "message": f"Could not reach {url}."}
+
+    probe = _CREDENTIAL_PROBES.get(key)
+    if not probe:
+        return {"ok": True, "reachable": False, "message": ""}
+
+    url, auth = probe
+    headers = {"Accept": "application/json"}
+    params = {}
+    if auth == "bearer":
+        headers["Authorization"] = f"Bearer {value}"
+    else:
+        params["key"] = value
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10.0), follow_redirects=True) as client:
+            resp = client.get(url, headers=headers, params=params)
+    except Exception:
+        return {"ok": False, "reachable": False, "message": "Could not reach the provider to verify the key."}
+
+    if resp.status_code in (401, 403):
+        return {"ok": False, "reachable": True, "message": "That API key was rejected. Double-check it and try again."}
+    if resp.status_code == 429 or resp.is_success:
+        return {"ok": True, "reachable": True, "message": ""}
+    return {"ok": False, "reachable": True, "message": f"Provider returned HTTP {resp.status_code} for this key."}
+
+
+@app.get("/api/providers/catalog")
+def get_provider_catalog():
+    """Return the qiqiclaw setup provider/API catalog used by settings UIs."""
+    return {"providers": _provider_catalog_rows()}
+
+
+@app.post("/api/models/discover")
+async def discover_models(body: ModelDiscoverRequest):
+    provider = (body.provider or "").strip().lower()
+    base_url = (body.base_url or "").strip()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom model discovery")
+    return _discover_models_from_pool(provider, base_url, body.credential_index)
+
+
+def _merge_model_library_into_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    models = _read_models_library()
+    if not models:
+        return payload
+
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        providers = []
+        payload["providers"] = providers
+
+    rows_by_slug: Dict[str, Dict[str, Any]] = {
+        str(row.get("slug") or "").lower(): row
+        for row in providers
+        if isinstance(row, dict) and row.get("slug")
+    }
+
+    for entry in models:
+        provider = entry["provider"]
+        row = rows_by_slug.get(provider)
+        if row is None:
+            row = {
+                "slug": provider,
+                "name": "OpenAI 兼容 / 中转站 / 本地" if provider == "custom" else provider,
+                "is_current": provider == str(payload.get("provider") or "").lower(),
+                "is_user_defined": True,
+                "models": [],
+                "total_models": 0,
+                "authenticated": True,
+                "auth_type": "api_key",
+                "key_env": "CUSTOM_API_KEY" if provider == "custom" else "",
+                "source": "models_library",
+            }
+            providers.append(row)
+            rows_by_slug[provider] = row
+
+        row_models = row.get("models")
+        if not isinstance(row_models, list):
+            row_models = []
+            row["models"] = row_models
+        if entry["model"] not in row_models:
+            row_models.append(entry["model"])
+
+        model_entries = row.get("model_entries")
+        if not isinstance(model_entries, dict):
+            model_entries = {}
+            row["model_entries"] = model_entries
+        existing = model_entries.get(entry["model"])
+        if not isinstance(existing, dict) or entry.get("base_url"):
+            model_entries[entry["model"]] = {
+                "id": entry["id"],
+                "name": entry["name"],
+                "provider": provider,
+                "model": entry["model"],
+                "base_url": entry.get("base_url", ""),
+                "source": "models_library",
+            }
+        row["total_models"] = max(int(row.get("total_models") or 0), len(row_models))
+
+    return payload
 
 
 @app.get("/api/model/info")
@@ -1028,7 +2099,7 @@ _AUX_TASK_SLOTS: Tuple[str, ...] = (
 
 @app.get("/api/model/options")
 def get_model_options():
-    """Return authenticated providers + their curated model lists.
+    """Return model-library entries backed by verified credential-pool keys.
 
     REST equivalent of the ``model.options`` JSON-RPC on tui_gateway, so the
     dashboard Models page can render the picker without a live chat session.
@@ -1036,42 +2107,126 @@ def get_model_options():
     can share the same types.
     """
     try:
-        from qiqiclaw_cli.model_switch import list_authenticated_providers
-
         cfg = load_config()
         model_cfg = cfg.get("model", {})
         if isinstance(model_cfg, dict):
             current_model = model_cfg.get("default", model_cfg.get("name", "")) or ""
             current_provider = model_cfg.get("provider", "") or ""
-            current_base_url = model_cfg.get("base_url", "") or ""
         else:
             current_model = str(model_cfg) if model_cfg else ""
             current_provider = ""
-            current_base_url = ""
-
-        user_providers = cfg.get("providers") if isinstance(cfg.get("providers"), dict) else {}
-        custom_providers = (
-            cfg.get("custom_providers")
-            if isinstance(cfg.get("custom_providers"), list)
-            else []
-        )
-
-        providers = list_authenticated_providers(
-            current_provider=current_provider,
-            current_base_url=current_base_url,
+        return _build_verified_model_options_payload(
             current_model=current_model,
-            user_providers=user_providers,
-            custom_providers=custom_providers,
-            max_models=50,
+            current_provider=current_provider,
         )
-        return {
-            "providers": providers,
-            "model": current_model,
-            "provider": current_provider,
-        }
     except Exception:
         _log.exception("GET /api/model/options failed")
         raise HTTPException(status_code=500, detail="获取模型选项失败")
+
+
+@app.get("/api/models/library")
+def list_saved_models():
+    return {"models": [_annotate_saved_model(entry) for entry in _read_models_library()]}
+
+
+@app.post("/api/models/library")
+async def add_saved_model(body: SavedModelCreate):
+    model = (body.model or "").strip()
+    provider = (body.provider or "").strip().lower()
+    name = (body.name or "").strip() or model
+    base_url = (body.base_url or "").strip()
+    entry, deduped = _find_or_create_model_library_entry(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        name=name,
+    )
+
+    api_key = (body.api_key or "").strip()
+    if api_key:
+        try:
+            save_env_value(_env_key_for_model_library_url(base_url), api_key)
+        except Exception:
+            _log.exception("saving model-library API key failed")
+
+    return {"ok": True, "model": entry, "deduped": deduped}
+
+
+@app.put("/api/models/library/{model_id}")
+async def update_saved_model(model_id: str, body: SavedModelUpdate):
+    model = (body.model or "").strip()
+    provider = (body.provider or "").strip().lower()
+    name = (body.name or "").strip() or model
+    base_url = (body.base_url or "").strip()
+    if not model or not provider:
+        raise HTTPException(status_code=400, detail="provider and model are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom models")
+
+    models = _read_models_library()
+    for entry in models:
+        if entry.get("id") != model_id:
+            continue
+        entry.update({
+            "name": name,
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+        })
+        _write_models_library(models)
+        return {"ok": True, "model": entry}
+    raise HTTPException(status_code=404, detail="Model not found")
+
+
+@app.delete("/api/models/library/{model_id}")
+async def remove_saved_model(model_id: str):
+    models = _read_models_library()
+    kept = [entry for entry in models if entry.get("id") != model_id]
+    if len(kept) == len(models):
+        raise HTTPException(status_code=404, detail="Model not found")
+    _write_models_library(kept)
+    return {"ok": True}
+
+
+@app.post("/api/models/library/{model_id}/validate")
+async def validate_saved_model(model_id: str, body: SavedModelValidateRequest):
+    model_entry = next((entry for entry in _read_models_library() if entry.get("id") == model_id), None)
+    if model_entry is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    return _validate_model_entry_with_pool(model_entry, body.credential_index)
+
+
+@app.post("/api/models/route/validate")
+async def validate_model_route(body: ModelRouteValidateRequest):
+    provider = (body.provider or "").strip().lower()
+    model = (body.model or "").strip()
+    base_url = (body.base_url or "").strip()
+    name = (body.name or "").strip() if body.name else model
+    entry, deduped = _find_or_create_model_library_entry(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        name=name,
+    )
+    validation = _validate_model_entry_with_pool(entry, body.credential_index)
+    cfg = load_config()
+    model_cfg = cfg.get("model", {})
+    if isinstance(model_cfg, dict):
+        current_model = model_cfg.get("default", model_cfg.get("name", "")) or ""
+        current_provider = model_cfg.get("provider", "") or ""
+    else:
+        current_model = str(model_cfg) if model_cfg else ""
+        current_provider = ""
+    return {
+        **validation,
+        "deduped": deduped,
+        "library_model": _annotate_saved_model(entry),
+        "options": _build_verified_model_options_payload(
+            current_model=current_model,
+            current_provider=current_provider,
+        ),
+    }
 
 
 @app.get("/api/langgraph/status")
@@ -1172,6 +2327,93 @@ def _normalize_orchestrate_models(models: Any) -> list:
     return out
 
 
+def _resolve_model_spec_from_library(raw: Dict[str, Any]) -> Dict[str, Any]:
+    spec = dict(raw)
+    model = str(spec.get("model") or "").strip()
+    provider = str(spec.get("provider") or "").strip().lower()
+    base_url = str(spec.get("base_url") or "").strip()
+    if not model:
+        return spec
+
+    matches = []
+    for entry, credential_index, credential in _verified_model_library_entries():
+        if str(entry.get("model") or "").strip() != model:
+            continue
+        if provider and str(entry.get("provider") or "").strip().lower() != provider:
+            continue
+        if base_url and _normalize_model_base_url(entry.get("base_url")) != _normalize_model_base_url(base_url):
+            continue
+        matches.append((entry, credential_index, credential))
+    if not matches:
+        return spec
+
+    entry, credential_index, credential = matches[0]
+    resolved_provider = str(entry.get("provider") or provider or "").strip().lower()
+    resolved_base_url = _validated_model_base_url(credential, entry)
+    api_key = str(
+        credential.get("runtime_api_key")
+        or credential.get("access_token")
+        or credential.get("api_key")
+        or ""
+    ).strip()
+    api_mode = ""
+    try:
+        from qiqiclaw_cli.providers import determine_api_mode
+        api_mode = determine_api_mode(resolved_provider, resolved_base_url)
+    except Exception:
+        api_mode = ""
+    spec.update({
+        "model": model,
+        "provider": resolved_provider,
+        "base_url": resolved_base_url,
+        "credential_index": credential_index,
+    })
+    if api_key:
+        spec["api_key"] = api_key
+    if api_mode:
+        spec["api_mode"] = api_mode
+    spec.setdefault("label", f"{resolved_provider}/{model}")
+    return spec
+
+
+def _resolve_orchestrate_models_from_library(models: list) -> list:
+    return [
+        _resolve_model_spec_from_library(item) if isinstance(item, dict) else item
+        for item in models
+    ]
+
+
+def _resolve_orchestrate_assignments_from_library(assignments: Dict[str, str]) -> Dict[str, Any]:
+    resolved: Dict[str, Any] = {}
+    for role, value in (assignments or {}).items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        item = value.strip()
+        if ":" in item:
+            provider, model = item.split(":", 1)
+            resolved[role] = _resolve_model_spec_from_library({
+                "provider": provider.strip(),
+                "model": model.strip(),
+            })
+        else:
+            resolved[role] = _resolve_model_spec_from_library({"model": item})
+    return resolved
+
+
+def _redact_orchestration_state(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if str(key).lower() in {"api_key", "access_token", "runtime_api_key", "refresh_token"}:
+                redacted[key] = "<redacted>" if item else ""
+            else:
+                redacted[key] = _redact_orchestration_state(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_orchestration_state(item) for item in value]
+    return value
+
+
 @app.post("/api/orchestrate")
 async def run_orchestration(body: OrchestrateRunRequest):
     """Run the multi-node QiQiClaw orchestration graph through the REST API.
@@ -1183,7 +2425,7 @@ async def run_orchestration(body: OrchestrateRunRequest):
     try:
         from qiqiclaw_cli import orchestration_graph as og
 
-        models = _normalize_orchestrate_models(body.models)
+        models = _resolve_orchestrate_models_from_library(_normalize_orchestrate_models(body.models))
         mode = body.mode or ("ensemble" if models else "single")
         toolsets = (
             body.toolsets.split(",") if isinstance(body.toolsets, str) and body.toolsets
@@ -1210,7 +2452,7 @@ async def run_orchestration(body: OrchestrateRunRequest):
                 body.task,
                 mode=mode,
                 models=models,
-                model_assignments=body.model_assignments or {},
+                model_assignments=_resolve_orchestrate_assignments_from_library(body.model_assignments or {}),
                 provider=body.provider or None,
                 toolsets=toolsets,
                 max_steps=body.max_steps,
@@ -1228,7 +2470,7 @@ async def run_orchestration(body: OrchestrateRunRequest):
         "ok": state.get("status") == "done",
         "dry_run": bool(body.dry_run),
         "mode": mode,
-        "state": state,
+        "state": _redact_orchestration_state(state),
         "workflow": {
             "nodes": ["decide", "execute", "aggregate"],
             "edges": [
@@ -1238,6 +2480,112 @@ async def run_orchestration(body: OrchestrateRunRequest):
             ],
         },
     }
+
+
+def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
+    if isinstance(entry, dict):
+        token = str(entry.get("access_token") or "")
+        return {
+            "index": index,
+            "id": entry.get("id"),
+            "label": entry.get("label"),
+            "auth_type": entry.get("auth_type"),
+            "source": entry.get("source"),
+            "priority": entry.get("priority", 0),
+            "last_status": entry.get("last_status"),
+            "request_count": entry.get("request_count", 0),
+            "token_preview": redact_key(token) if token else "",
+            "base_url": entry.get("base_url") or "",
+            "has_refresh": bool(entry.get("refresh_token")),
+        }
+    token = getattr(entry, "access_token", "") or ""
+    return {
+        "index": index,
+        "id": getattr(entry, "id", None),
+        "label": getattr(entry, "label", None),
+        "auth_type": getattr(entry, "auth_type", None),
+        "source": getattr(entry, "source", None),
+        "priority": getattr(entry, "priority", 0),
+        "last_status": getattr(entry, "last_status", None),
+        "request_count": getattr(entry, "request_count", 0),
+        "token_preview": redact_key(token) if token else "",
+        "base_url": getattr(entry, "base_url", None) or "",
+        "has_refresh": bool(getattr(entry, "refresh_token", None)),
+    }
+
+
+@app.get("/api/credentials/pool")
+async def list_credential_pool():
+    from qiqiclaw_cli.auth import read_credential_pool
+
+    providers = []
+    raw_pool = read_credential_pool()
+    for provider_id in sorted(raw_pool.keys()):
+        entries = raw_pool.get(provider_id)
+        if not isinstance(entries, list) or not entries:
+            continue
+        providers.append({
+            "provider": provider_id,
+            "entries": [
+                _pool_entry_summary(e, i) for i, e in enumerate(entries, start=1)
+            ],
+        })
+    return {"providers": providers}
+
+
+@app.post("/api/credentials/pool")
+async def add_credential_pool_entry(body: CredentialPoolAdd):
+    from qiqiclaw_cli.auth import read_credential_pool, write_credential_pool
+
+    provider = (body.provider or "").strip().lower()
+    api_key = (body.api_key or "").strip()
+    base_url = (body.base_url or "").strip()
+    if not provider or not api_key:
+        raise HTTPException(status_code=400, detail="provider and api_key are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom provider credentials")
+
+    entries = read_credential_pool(provider)
+    if not isinstance(entries, list):
+        entries = []
+    label = (body.label or "").strip() or f"key #{len(entries) + 1}"
+    entry = {
+        "id": uuid.uuid4().hex[:6],
+        "label": label,
+        "auth_type": "api_key",
+        "priority": len(entries),
+        "source": "manual",
+        "access_token": api_key,
+        "base_url": base_url or None,
+        "request_count": 0,
+    }
+    entries.append(entry)
+    try:
+        write_credential_pool(provider, entries)
+    except Exception as exc:
+        _log.exception("POST /api/credentials/pool failed")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "provider": provider, "count": len(entries)}
+
+
+@app.delete("/api/credentials/pool/{provider}/{index}")
+async def remove_credential_pool_entry(provider: str, index: int):
+    from qiqiclaw_cli.auth import read_credential_pool, write_credential_pool
+
+    provider = (provider or "").strip().lower()
+    entries = read_credential_pool(provider)
+    if not isinstance(entries, list) or index < 1 or index > len(entries):
+        raise HTTPException(status_code=404, detail="No pool entry at that index")
+    entries.pop(index - 1)
+    for priority, entry in enumerate(entries):
+        if isinstance(entry, dict):
+            entry["priority"] = priority
+    try:
+        write_credential_pool(provider, entries)
+    except Exception as exc:
+        _log.exception("DELETE /api/credentials/pool failed")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "provider": provider, "count": len(entries)}
 
 
 @app.post("/api/audio/transcribe")
@@ -1367,6 +2715,7 @@ async def set_model_assignment(body: ModelAssignment):
     provider = (body.provider or "").strip()
     model = (body.model or "").strip()
     task = (body.task or "").strip().lower()
+    base_url = (body.base_url or "").strip()
 
     if scope not in ("main", "auxiliary"):
         raise HTTPException(status_code=400, detail="scope 必须是 'main' 或 'auxiliary'")
@@ -1377,21 +2726,18 @@ async def set_model_assignment(body: ModelAssignment):
         if scope == "main":
             if not provider or not model:
                 raise HTTPException(status_code=400, detail="main 需要 provider 和 model")
-            model_cfg = cfg.get("model", {})
-            if not isinstance(model_cfg, dict):
-                model_cfg = {}
-            model_cfg["provider"] = provider
-            model_cfg["default"] = model
-            # Clear stale base_url so the resolver picks the provider's own default.
-            if "base_url" in model_cfg and model_cfg.get("base_url"):
-                model_cfg["base_url"] = ""
-            # Also clear hardcoded context_length override — new model may have
-            # a different context window.
-            if "context_length" in model_cfg:
-                model_cfg.pop("context_length", None)
+            model_cfg = _apply_main_model_assignment(
+                cfg.get("model", {}), provider, model, base_url
+            )
             cfg["model"] = model_cfg
             save_config(cfg)
-            return {"ok": True, "scope": "main", "provider": provider, "model": model}
+            return {
+                "ok": True,
+                "scope": "main",
+                "provider": provider,
+                "model": model,
+                "base_url": model_cfg.get("base_url", ""),
+            }
 
         # scope == "auxiliary"
         aux = cfg.get("auxiliary")
@@ -1577,6 +2923,157 @@ async def reveal_env_var(body: EnvVarReveal, request: Request):
 
     _log.info("env/reveal: %s", body.key)
     return {"key": body.key, "value": value}
+
+
+def _messaging_setup_payload() -> dict[str, Any]:
+    from qiqiclaw_cli.gateway import gateway_setup_status
+
+    status = gateway_setup_status()
+    env_on_disk = load_env()
+    runtime = read_runtime_status() or {}
+    runtime_platforms = runtime.get("platforms") or {}
+    gateway_running = bool(status.get("running"))
+    if not gateway_running:
+        health_alive, health_body, _health_url = _probe_gateway_health()
+        if health_alive:
+            gateway_running = True
+            if health_body and not runtime:
+                runtime = health_body
+                runtime_platforms = runtime.get("platforms") or {}
+    platforms = []
+
+    for platform in status.get("platforms") or []:
+        platform_id = str(platform.get("key") or "").strip()
+        if not platform_id:
+            continue
+
+        env_vars = []
+        for var in platform.get("vars") or []:
+            key = str(var.get("name") or "").strip()
+            if not key:
+                continue
+            value = env_on_disk.get(key, "")
+            env_vars.append(
+                {
+                    "advanced": False,
+                    "description": var.get("help", ""),
+                    "is_allowlist": bool(var.get("is_allowlist", False)),
+                    "is_password": bool(var.get("password", False)),
+                    "is_set": bool(value),
+                    "key": key,
+                    "prompt": var.get("prompt") or key,
+                    "redacted_value": redact_key(value) if value else None,
+                    "required": key == platform.get("token_var"),
+                    "url": None,
+                }
+            )
+
+        setup_status = str(platform.get("status") or "not configured")
+        configured = setup_status.lower().startswith("configured")
+        runtime_payload = runtime_platforms.get(platform_id) or {}
+        runtime_state = runtime_payload.get("state")
+        state = runtime_state or ("configured" if configured else "not_configured")
+        if not gateway_running and configured:
+            state = "gateway_stopped"
+
+        platforms.append(
+            {
+                "configured": configured,
+                "description": "\n".join(platform.get("setup_instructions") or []),
+                "docs_url": "",
+                "enabled": configured,
+                "env_vars": env_vars,
+                "error_code": runtime_payload.get("error_code"),
+                "error_message": runtime_payload.get("error_message"),
+                "gateway_running": gateway_running,
+                "has_interactive_setup": bool(platform.get("has_interactive_setup")),
+                "home_channel": None,
+                "id": platform_id,
+                "install_hint": platform.get("install_hint", ""),
+                "name": platform.get("label") or platform_id,
+                "setup_instructions": list(platform.get("setup_instructions") or []),
+                "setup_status": setup_status,
+                "source": platform.get("source", "builtin"),
+                "state": state,
+                "updated_at": runtime_payload.get("updated_at"),
+            }
+        )
+
+    return {
+        "api_server": status.get("api_server") or {},
+        "gateway_pids": status.get("gateway_pids") or [],
+        "home": status.get("home"),
+        "platforms": platforms,
+        "runtime_health": status.get("runtime_health") or [],
+        "service_installed": bool(status.get("service_installed")),
+        "service_running": bool(status.get("service_running")),
+        "supports_launchd": bool(status.get("supports_launchd")),
+        "supports_systemd": bool(status.get("supports_systemd")),
+    }
+
+
+def _messaging_platform_by_id(platform_id: str) -> dict[str, Any] | None:
+    for platform in _messaging_setup_payload()["platforms"]:
+        if platform["id"] == platform_id:
+            return platform
+    return None
+
+
+@app.get("/api/messaging/platforms")
+async def get_messaging_platforms():
+    return _messaging_setup_payload()
+
+
+@app.put("/api/messaging/platforms/{platform_id}")
+async def update_messaging_platform(platform_id: str, body: MessagingPlatformUpdate):
+    platform = _messaging_platform_by_id(platform_id)
+    if not platform:
+        raise HTTPException(status_code=404, detail=f"未知消息平台: {platform_id}")
+
+    allowed_env = {field["key"] for field in platform.get("env_vars") or []}
+    if body.enabled is not None:
+        if body.enabled:
+            if not platform.get("configured"):
+                raise HTTPException(status_code=400, detail="请先填写该平台的配置项")
+        else:
+            for field in platform.get("env_vars") or []:
+                remove_env_value(field["key"])
+
+    for key in body.clear_env:
+        if key not in allowed_env:
+            raise HTTPException(status_code=400, detail=f"{key} 不属于 {platform['name']} 配置项")
+        remove_env_value(key)
+
+    for key, value in body.env.items():
+        if key not in allowed_env:
+            raise HTTPException(status_code=400, detail=f"{key} 不属于 {platform['name']} 配置项")
+        trimmed = value.strip()
+        if trimmed:
+            save_env_value(key, trimmed)
+
+    return {"ok": True, "platform": platform_id}
+
+
+@app.post("/api/messaging/platforms/{platform_id}/test")
+async def test_messaging_platform(platform_id: str):
+    platform = _messaging_platform_by_id(platform_id)
+    if not platform:
+        raise HTTPException(status_code=404, detail=f"未知消息平台: {platform_id}")
+    if not platform.get("configured"):
+        missing = [
+            field["key"]
+            for field in platform.get("env_vars") or []
+            if field.get("required") and not field.get("is_set")
+        ]
+        message = "缺少配置项: " + ", ".join(missing) if missing else "平台尚未完成配置"
+        return {"ok": False, "state": platform.get("state"), "message": message}
+    if not platform.get("gateway_running"):
+        return {
+            "ok": False,
+            "state": platform.get("state"),
+            "message": "配置已保存，但 Gateway 未运行。请启动或重启 Gateway。",
+        }
+    return {"ok": True, "state": platform.get("state"), "message": "配置已保存，Gateway 正在运行。"}
 
 
 # ---------------------------------------------------------------------------
@@ -2521,7 +4018,11 @@ async def get_logs(
 ):
     from qiqiclaw_cli.logs import _read_tail, LOG_FILES
 
-    log_name = LOG_FILES.get(file)
+    log_aliases = {
+        "gui": "gui.log",
+        "desktop": "desktop.log",
+    }
+    log_name = log_aliases.get(file) or LOG_FILES.get(file)
     if not log_name:
         raise HTTPException(status_code=400, detail=f"未知日志文件: {file}")
     log_path = get_qiqiclaw_home() / "logs" / log_name
@@ -2669,6 +4170,10 @@ class ProfileSoulUpdate(BaseModel):
     content: str
 
 
+class ProfileActiveUpdate(BaseModel):
+    name: str
+
+
 def _profile_attr(info, name: str, default: Any = None) -> Any:
     try:
         return getattr(info, name)
@@ -2783,6 +4288,131 @@ async def create_profile_endpoint(body: ProfileCreate):
         _log.exception("POST /api/profiles failed")
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "name": body.name, "path": str(path)}
+
+
+@app.get("/api/profiles/active")
+async def get_active_profile_endpoint():
+    from qiqiclaw_cli import profiles as profiles_mod
+    try:
+        active = profiles_mod.get_active_profile() or "default"
+    except Exception:
+        active = "default"
+    try:
+        current = profiles_mod.get_active_profile_name() or "default"
+    except Exception:
+        current = "default"
+    return {"active": active, "current": current}
+
+
+@app.post("/api/profiles/active")
+async def set_active_profile_endpoint(body: ProfileActiveUpdate):
+    from qiqiclaw_cli import profiles as profiles_mod
+    try:
+        profiles_mod.set_active_profile(body.name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        _log.exception("POST /api/profiles/active failed")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "active": profiles_mod.normalize_profile_name(body.name)}
+
+
+@app.get("/api/profiles/sessions")
+async def get_profiles_sessions(
+    limit: int = 20,
+    offset: int = 0,
+    min_messages: int = 0,
+    archived: str = "exclude",
+    order: str = "recent",
+    profile: str = "all",
+    source: Optional[str] = None,
+    exclude_sources: Optional[str] = None,
+):
+    """Aggregate local profile session lists for the desktop sidebar."""
+    if archived not in ("exclude", "only", "include"):
+        raise HTTPException(status_code=400, detail="archived must be one of: exclude, only, include")
+    if order not in ("created", "recent"):
+        raise HTTPException(status_code=400, detail="order must be one of: created, recent")
+
+    from qiqiclaw_state import SessionDB
+    from qiqiclaw_cli import profiles as profiles_mod
+
+    targets: List[Tuple[str, Path]] = []
+    if profile and profile != "all":
+        try:
+            profiles_mod.validate_profile_name(profile)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if not profiles_mod.profile_exists(profile):
+            raise HTTPException(status_code=404, detail=f"配置文件 '{profile}' 不存在。")
+        targets.append((profile, profiles_mod.get_profile_dir(profile)))
+    else:
+        try:
+            targets = [(info.name, info.path) for info in profiles_mod.list_profiles()]
+        except Exception:
+            _log.exception("GET /api/profiles/sessions: list_profiles failed")
+            targets = []
+        if not targets:
+            targets.append(("default", profiles_mod.get_profile_dir("default")))
+
+    request_limit = max(1, limit)
+    request_offset = max(0, offset)
+    per_profile_limit = min(max(request_limit + request_offset, request_limit, 100), 5000)
+    merged: List[Dict[str, Any]] = []
+    total = 0
+    profile_totals: Dict[str, int] = {}
+    errors: List[Dict[str, str]] = []
+    now = time.time()
+
+    for name, home in targets:
+        db_path = Path(home) / "state.db"
+        if not db_path.exists():
+            profile_totals[name] = 0
+            continue
+        try:
+            db = SessionDB(db_path=db_path)
+        except Exception as exc:
+            errors.append({"profile": name, "error": str(exc)})
+            continue
+        try:
+            rows, profile_total = _list_sessions_compat(
+                db,
+                limit=per_profile_limit,
+                offset=0,
+                min_messages=min_messages,
+                archived=archived,
+                order=order,
+                source=source,
+                exclude_sources=exclude_sources,
+            )
+            total += profile_total
+            profile_totals[name] = profile_total
+            for s in rows:
+                s["profile"] = name
+                s["is_default_profile"] = name == "default"
+                s["is_active"] = (
+                    s.get("ended_at") is None
+                    and (now - s.get("last_active", s.get("started_at", 0))) < 300
+                )
+                s["archived"] = bool(s.get("archived"))
+                merged.append(s)
+        except Exception as exc:
+            errors.append({"profile": name, "error": str(exc)})
+        finally:
+            db.close()
+
+    _sort_sessions_for_dashboard(merged, order)
+    window = merged[request_offset:request_offset + request_limit]
+    return {
+        "sessions": window,
+        "total": total,
+        "profile_totals": profile_totals,
+        "limit": request_limit,
+        "offset": request_offset,
+        "errors": errors,
+    }
 
 
 @app.get("/api/profiles/{name}/setup-command")
@@ -3300,7 +4930,15 @@ _PTY_READ_CHUNK_TIMEOUT = 0.2
 _VALID_CHANNEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 # Starlette's TestClient reports the peer as "testclient"; treat it as
 # loopback so tests don't need to rewrite request scope.
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient", "192.168.0.106"})
+_LOOPBACK_HOSTS = frozenset({
+    "127.0.0.1",
+    "::1",
+    "::ffff:127.0.0.1",
+    "0:0:0:0:0:ffff:127.0.0.1",
+    "localhost",
+    "testclient",
+    "192.168.0.106",
+})
 
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
 # and /api/events (dashboard → browser sidebar).  Keyed by an opaque channel id
@@ -3379,9 +5017,23 @@ def _channel_or_close_code(ws: WebSocket) -> Optional[str]:
     return channel if _VALID_CHANNEL_RE.match(channel) else None
 
 
+def _ws_client_host(ws: WebSocket) -> str:
+    return (ws.client.host if ws.client else "") or ""
+
+
+def _is_loopback_ws_client(ws: WebSocket) -> bool:
+    client_host = _ws_client_host(ws)
+    return not client_host or client_host in _LOOPBACK_HOSTS
+
+
+def _log_ws_reject(endpoint: str, reason: str, ws: WebSocket) -> None:
+    _log.warning("Rejecting %s WebSocket: %s (client=%s)", endpoint, reason, _ws_client_host(ws) or "unknown")
+
+
 @app.websocket("/api/pty")
 async def pty_ws(ws: WebSocket) -> None:
     if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
+        _log_ws_reject("/api/pty", "embedded chat disabled", ws)
         await ws.close(code=4403)
         return
 
@@ -3389,11 +5041,12 @@ async def pty_ws(ws: WebSocket) -> None:
     token = ws.query_params.get("token", "")
     expected = _SESSION_TOKEN
     if not hmac.compare_digest(token.encode(), expected.encode()):
+        _log_ws_reject("/api/pty", "invalid session token", ws)
         await ws.close(code=4401)
         return
 
-    client_host = ws.client.host if ws.client else ""
-    if client_host and client_host not in _LOOPBACK_HOSTS:
+    if not _is_loopback_ws_client(ws):
+        _log_ws_reject("/api/pty", "non-loopback client", ws)
         await ws.close(code=4403)
         return
 
@@ -3492,16 +5145,18 @@ async def pty_ws(ws: WebSocket) -> None:
 @app.websocket("/api/ws")
 async def gateway_ws(ws: WebSocket) -> None:
     if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
+        _log_ws_reject("/api/ws", "embedded chat disabled", ws)
         await ws.close(code=4403)
         return
 
     token = ws.query_params.get("token", "")
     if not hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
+        _log_ws_reject("/api/ws", "invalid session token", ws)
         await ws.close(code=4401)
         return
 
-    client_host = ws.client.host if ws.client else ""
-    if client_host and client_host not in _LOOPBACK_HOSTS:
+    if not _is_loopback_ws_client(ws):
+        _log_ws_reject("/api/ws", "non-loopback client", ws)
         await ws.close(code=4403)
         return
 
@@ -3607,9 +5262,13 @@ def mount_spa(application: FastAPI):
     if not WEB_DIST.exists():
         @application.get("/{full_path:path}")
         async def no_frontend(full_path: str):
-            return JSONResponse(
-                {"error": "QiQiClaw web frontend not found. Create qiqiclaw_cli/web_dist/index.html"},
-                status_code=404,
+            chat_js = "true" if _DASHBOARD_EMBEDDED_CHAT_ENABLED else "false"
+            return HTMLResponse(
+                "<!doctype html><html><head>"
+                f'<script>window.__QIQICLAW_SESSION_TOKEN__="{_SESSION_TOKEN}";'
+                f"window.__QIQICLAW_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
+                "</script></head><body>QiQiClaw backend is running.</body></html>",
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
             )
         return
 

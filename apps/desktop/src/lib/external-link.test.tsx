@@ -13,7 +13,7 @@ import {
 } from './external-link'
 
 const desktopWindow = window as unknown as { hermesDesktop?: Window['hermesDesktop'] }
-const initialHermesDesktop = desktopWindow.hermesDesktop
+const initialQiQiClawDesktop = desktopWindow.hermesDesktop
 
 function installDesktopBridge(partial: Partial<Window['hermesDesktop']> = {}) {
   desktopWindow.hermesDesktop = {
@@ -28,8 +28,8 @@ afterEach(() => {
   vi.restoreAllMocks()
   cleanup()
 
-  if (initialHermesDesktop) {
-    desktopWindow.hermesDesktop = initialHermesDesktop
+  if (initialQiQiClawDesktop) {
+    desktopWindow.hermesDesktop = initialQiQiClawDesktop
   } else {
     delete desktopWindow.hermesDesktop
   }

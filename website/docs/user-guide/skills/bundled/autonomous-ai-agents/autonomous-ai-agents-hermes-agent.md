@@ -1,14 +1,14 @@
 ---
-title: "Hermes Agent — Configure, extend, or contribute to Hermes Agent"
-sidebar_label: "Hermes Agent"
-description: "Configure, extend, or contribute to Hermes Agent"
+title: "QIQI-Claw — Configure, extend, or contribute to QIQI-Claw"
+sidebar_label: "QIQI-Claw"
+description: "Configure, extend, or contribute to QIQI-Claw"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
-# Hermes Agent
+# QIQI-Claw
 
-Configure, extend, or contribute to Hermes Agent.
+Configure, extend, or contribute to QIQI-Claw.
 
 ## Skill metadata
 
@@ -17,7 +17,7 @@ Configure, extend, or contribute to Hermes Agent.
 | Source | Bundled (installed by default) |
 | Path | `skills/autonomous-ai-agents/hermes-agent` |
 | Version | `2.1.0` |
-| Author | Hermes Agent + Teknium |
+| Author | QIQI-Claw + Teknium |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `hermes`, `setup`, `configuration`, `multi-agent`, `spawning`, `cli`, `gateway`, `development` |
@@ -26,33 +26,33 @@ Configure, extend, or contribute to Hermes Agent.
 ## Reference: full SKILL.md
 
 :::info
-The following is the complete skill definition that Hermes loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
+The following is the complete skill definition that QiQiClaw loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
 :::
 
-# Hermes Agent
+# QIQI-Claw
 
-Hermes Agent is an open-source AI agent framework by Nous Research that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. Hermes works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
+QIQI-Claw is an open-source AI agent framework by Nous Research that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. QiQiClaw works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
 
-What makes Hermes different:
+What makes QiQiClaw different:
 
-- **Self-improving through skills** — Hermes learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
+- **Self-improving through skills** — QiQiClaw learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
 - **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends (built-in, Honcho, Mem0, and more) let you choose how memory works.
 - **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Email, and 10+ other platforms with full tool access, not just chat.
 - **Provider-agnostic** — swap models and providers mid-workflow without changing anything else. Credential pools rotate across multiple API keys automatically.
-- **Profiles** — run multiple independent Hermes instances with isolated configs, sessions, skills, and memory.
+- **Profiles** — run multiple independent QiQiClaw instances with isolated configs, sessions, skills, and memory.
 - **Extensible** — plugins, MCP servers, custom tools, webhook triggers, cron scheduling, and the full Python ecosystem.
 
-People use Hermes for software development, research, system administration, data analysis, content creation, home automation, and anything else that benefits from an AI agent with persistent context and full system access.
+People use QiQiClaw for software development, research, system administration, data analysis, content creation, home automation, and anything else that benefits from an AI agent with persistent context and full system access.
 
-**This skill helps you work with Hermes Agent effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
+**This skill helps you work with QIQI-Claw effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
 
-**Docs:** https://hermes-agent.nousresearch.com/docs/
+**Docs:** https://github.com/xzly111/qiqiclaw#readme
 
 ## Quick Start
 
 ```bash
 # Install
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://github.com/xzly111/qiqiclaw/install.sh | bash
 
 # Interactive chat (default)
 hermes
@@ -149,7 +149,7 @@ hermes skills tap add REPO  Add a GitHub repo as skill source
 ### MCP Servers
 
 ```
-hermes mcp serve            Run Hermes as an MCP server
+hermes mcp serve            Run QiQiClaw as an MCP server
 hermes mcp add NAME         Add an MCP server (--url or --command)
 hermes mcp remove NAME      Remove an MCP server
 hermes mcp list             List configured servers
@@ -174,7 +174,7 @@ hermes gateway setup        Configure platforms
 
 Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Matrix, Mattermost, Home Assistant, DingTalk, Feishu, WeCom, BlueBubbles (iMessage), Weixin (WeChat), API Server, Webhooks. Open WebUI connects via the API Server adapter.
 
-Platform docs: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
+Platform docs: https://github.com/xzly111/qiqiclaw#readmeuser-guide/messaging/
 
 ### Sessions
 
@@ -247,7 +247,7 @@ hermes memory setup/status/off  Memory provider config
 hermes completion bash|zsh  Shell completions
 hermes acp                  ACP server (IDE integration)
 hermes claw migrate         Migrate from OpenClaw
-hermes uninstall            Uninstall Hermes
+hermes uninstall            Uninstall QiQiClaw
 ```
 
 ---
@@ -256,7 +256,7 @@ hermes uninstall            Uninstall Hermes
 
 Type these during an interactive chat session. New commands land fairly
 often; if something below looks stale, run `/help` in-session for the
-authoritative list or see the [live slash commands reference](https://hermes-agent.nousresearch.com/docs/reference/slash-commands).
+authoritative list or see the [live slash commands reference](https://github.com/xzly111/qiqiclaw#readmereference/slash-commands).
 The registry of record is `hermes_cli/commands.py` — every consumer
 (autocomplete, Telegram menu, Slack mapping, `/help`) derives from it.
 
@@ -270,13 +270,13 @@ The registry of record is `hermes_cli/commands.py` — every consumer
 /compress            Manually compress context
 /stop                Kill background processes
 /rollback [N]        Restore filesystem checkpoint
-/snapshot [sub]      Create or restore state snapshots of Hermes config/state (CLI)
+/snapshot [sub]      Create or restore state snapshots of QiQiClaw config/state (CLI)
 /background <prompt> Run prompt in background
 /queue <prompt>      Queue for next turn
 /steer <prompt>      Inject a message after the next tool call without interrupting
 /agents (/tasks)     Show active agents and running tasks
 /resume [name]       Resume a named session
-/goal [text|sub]     Set a standing goal Hermes works on across turns until achieved
+/goal [text|sub]     Set a standing goal QiQiClaw works on across turns until achieved
                      (subcommands: status, pause, resume, clear)
 /redraw              Force a full UI repaint (CLI)
 ```
@@ -290,7 +290,7 @@ The registry of record is `hermes_cli/commands.py` — every consumer
 /verbose             Cycle: off → new → all → verbose
 /voice [on|off|tts]  Voice mode
 /yolo                Toggle approval bypass
-/busy [sub]          Control what Enter does while Hermes is working (CLI)
+/busy [sub]          Control what Enter does while QiQiClaw is working (CLI)
                      (subcommands: queue, steer, interrupt, status)
 /indicator [style]   Pick the TUI busy-indicator style (CLI)
                      (styles: kaomoji, emoji, unicode, ascii)
@@ -320,7 +320,7 @@ The registry of record is `hermes_cli/commands.py` — every consumer
 /deny                Deny a pending command (gateway)
 /restart             Restart gateway (gateway)
 /sethome             Set current chat as home channel (gateway)
-/update              Update Hermes to latest (gateway)
+/update              Update QiQiClaw to latest (gateway)
 /topic [sub]         Enable or inspect Telegram DM topic sessions (gateway)
 /platforms (/gateway) Show platform connection status (gateway)
 ```
@@ -366,7 +366,7 @@ $HERMES_HOME/skills/        Installed skills
 ~/.hermes/state.db          Canonical session store (SQLite + FTS5)
 ~/.hermes/logs/             Gateway and error logs
 ~/.hermes/auth.json         OAuth tokens and credential pools
-~/.hermes/hermes-agent/     Source code (if git-installed)
+~/.hermes/qiqiclaw/     Source code (if git-installed)
 ```
 
 Profiles use `~/.hermes/profiles/<name>/` with the same layout.
@@ -389,7 +389,7 @@ Edit with `hermes config edit` or `hermes config set section.key value`.
 | `delegation` | `model`, `provider`, `base_url`, `api_key`, `max_iterations` (50), `reasoning_effort` |
 | `checkpoints` | `enabled`, `max_snapshots` (50) |
 
-Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+Full config reference: https://github.com/xzly111/qiqiclaw#readmeuser-guide/configuration
 
 ### Providers
 
@@ -419,7 +419,7 @@ Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/con
 | Custom endpoint | Config | `model.base_url` + `model.api_key` in config.yaml |
 | GitHub Copilot ACP | External | `COPILOT_CLI_PATH` or Copilot CLI |
 
-Full provider docs: https://hermes-agent.nousresearch.com/docs/integrations/providers
+Full provider docs: https://github.com/xzly111/qiqiclaw#readmeintegrations/providers
 
 ### Toolsets
 
@@ -466,7 +466,7 @@ Tool changes take effect on `/reset` (new session). They do NOT apply mid-conver
 
 ## Security & Privacy Toggles
 
-Common "why is Hermes doing X to my output / tool calls / commands?" toggles — and the exact commands to change them. Most of these need a fresh session (`/reset` in chat, or start a new `hermes` invocation) because they're read once at startup.
+Common "why is QiQiClaw doing X to my output / tool calls / commands?" toggles — and the exact commands to change them. Most of these need a fresh session (`/reset` in chat, or start a new `hermes` invocation) because they're read once at startup.
 
 ### Secret redaction in tool output
 
@@ -494,7 +494,7 @@ hermes config set privacy.redact_pii false   # disable (default)
 
 ### Command approval prompts
 
-By default (`approvals.mode: manual`), Hermes prompts the user before running shell commands flagged as destructive (`rm -rf`, `git reset --hard`, etc.). The modes are:
+By default (`approvals.mode: manual`), QiQiClaw prompts the user before running shell commands flagged as destructive (`rm -rf`, `git reset --hard`, etc.). The modes are:
 
 - `manual` — always prompt (default)
 - `smart` — use an auxiliary LLM to auto-approve low-risk commands, prompt on high-risk
@@ -557,9 +557,9 @@ Voice commands: `/voice on` (voice-to-voice), `/voice tts` (always voice), `/voi
 
 ---
 
-## Spawning Additional Hermes Instances
+## Spawning Additional QiQiClaw Instances
 
-Run additional Hermes processes as fully independent subprocesses — separate sessions, tools, and environments.
+Run additional QiQiClaw processes as fully independent subprocesses — separate sessions, tools, and environments.
 
 ### When to Use This vs delegate_task
 
@@ -582,7 +582,7 @@ terminal(command="hermes chat -q 'Set up CI/CD for ~/myapp'", background=true)
 
 ### Interactive PTY Mode (via tmux)
 
-Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
+QiQiClaw uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
 
 ```
 # Start
@@ -679,7 +679,7 @@ the `cronjob` tool, the `hermes cron` CLI (`list`, `add`, `edit`,
   header/footer instead of being mirrored into the target gateway
   session (keeps role alternation intact).
 
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
+User docs: https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/cron
 
 ### Curator (skill lifecycle)
 
@@ -700,7 +700,7 @@ so nothing is lost.
 
 Config: `curator.*` (`enabled`, `interval_hours`, `min_idle_hours`,
 `stale_after_days`, `archive_after_days`, `backup.*`).
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/curator
+User docs: https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/curator
 
 ### Kanban (multi-agent work queue)
 
@@ -729,13 +729,13 @@ sessions still have zero `kanban_*` schema footprint unless configured.
   `HERMES_KANBAN_BOARD` pinned in env); tenant is a soft namespace
   within a board for workspace-path + memory-key isolation.
 
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban
+User docs: https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/kanban
 
 ---
 
 ## Windows-Specific Quirks
 
-Hermes runs natively on Windows (PowerShell, cmd, Windows Terminal, git-bash
+QiQiClaw runs natively on Windows (PowerShell, cmd, Windows Terminal, git-bash
 mintty, VS Code integrated terminal). Most of it just works, but a handful
 of differences between Win32 and POSIX have bitten us — document new ones
 here as you hit them so the next person (or the next session) doesn't
@@ -777,7 +777,7 @@ Notepad are the usual culprit.
 or initialized") from the sandbox child process — it can't create an
 `AF_INET` socket, so the loopback-TCP RPC fallback fails before
 `connect()`. Root cause is usually **not** a broken Winsock LSP; it's
-Hermes's own env scrubber dropping `SYSTEMROOT` / `WINDIR` / `COMSPEC`
+QiQiClaw's own env scrubber dropping `SYSTEMROOT` / `WINDIR` / `COMSPEC`
 from the child env. Python's `socket` module needs `SYSTEMROOT` to locate
 `mswsock.dll`. Fixed via the `_WINDOWS_ESSENTIAL_ENV_VARS` allowlist in
 `tools/code_execution_tool.py`. If you still hit it, echo `os.environ`
@@ -787,7 +787,7 @@ diagnostic recipe in `references/execute-code-sandbox-env-windows.md`.
 ### Testing / Contributing
 
 **`scripts/run_tests.sh` doesn't work as-is on Windows** — it looks for
-POSIX venv layouts (`.venv/bin/activate`). The Hermes-installed venv at
+POSIX venv layouts (`.venv/bin/activate`). The QiQiClaw-installed venv at
 `venv/Scripts/` has no pip or pytest either (stripped for install size).
 Workaround: install `pytest + pytest-xdist + pyyaml` into a system Python
 3.11 user site, then invoke pytest directly with `PYTHONPATH` set:
@@ -818,7 +818,7 @@ Git touches it`. Cosmetic — the repo's `.gitattributes` normalizes. Don't
 let editors auto-convert committed POSIX-newline files to CRLF.
 
 **Forward slashes work almost everywhere.** `C:/Users/...` is accepted by
-every Hermes tool and most Windows APIs. Prefer forward slashes in code
+every QiQiClaw tool and most Windows APIs. Prefer forward slashes in code
 and logs — avoids shell-escaping backslashes in bash.
 
 ---
@@ -880,37 +880,37 @@ hermes config set auxiliary.vision.model <model_name>
 
 | Looking for... | Location |
 |----------------|----------|
-| Config options | `hermes config edit` or [Configuration docs](https://hermes-agent.nousresearch.com/docs/user-guide/configuration) |
-| Available tools | `hermes tools list` or [Tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference) |
-| Slash commands | `/help` in session or [Slash commands reference](https://hermes-agent.nousresearch.com/docs/reference/slash-commands) |
-| Skills catalog | `hermes skills browse` or [Skills catalog](https://hermes-agent.nousresearch.com/docs/reference/skills-catalog) |
-| Provider setup | `hermes model` or [Providers guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) |
-| Platform setup | `hermes gateway setup` or [Messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/) |
-| MCP servers | `hermes mcp list` or [MCP guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) |
-| Profiles | `hermes profile list` or [Profiles docs](https://hermes-agent.nousresearch.com/docs/user-guide/profiles) |
-| Cron jobs | `hermes cron list` or [Cron docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron) |
-| Memory | `hermes memory status` or [Memory docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory) |
-| Env variables | `hermes config env-path` or [Env vars reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables) |
-| CLI commands | `hermes --help` or [CLI reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands) |
+| Config options | `hermes config edit` or [Configuration docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/configuration) |
+| Available tools | `hermes tools list` or [Tools reference](https://github.com/xzly111/qiqiclaw#readmereference/tools-reference) |
+| Slash commands | `/help` in session or [Slash commands reference](https://github.com/xzly111/qiqiclaw#readmereference/slash-commands) |
+| Skills catalog | `hermes skills browse` or [Skills catalog](https://github.com/xzly111/qiqiclaw#readmereference/skills-catalog) |
+| Provider setup | `hermes model` or [Providers guide](https://github.com/xzly111/qiqiclaw#readmeintegrations/providers) |
+| Platform setup | `hermes gateway setup` or [Messaging docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/messaging/) |
+| MCP servers | `hermes mcp list` or [MCP guide](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/mcp) |
+| Profiles | `hermes profile list` or [Profiles docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/profiles) |
+| Cron jobs | `hermes cron list` or [Cron docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/cron) |
+| Memory | `hermes memory status` or [Memory docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/memory) |
+| Env variables | `hermes config env-path` or [Env vars reference](https://github.com/xzly111/qiqiclaw#readmereference/environment-variables) |
+| CLI commands | `hermes --help` or [CLI reference](https://github.com/xzly111/qiqiclaw#readmereference/cli-commands) |
 | Gateway logs | `~/.hermes/logs/gateway.log` |
 | Session files | `hermes sessions browse` (reads state.db) |
-| Source code | `~/.hermes/hermes-agent/` |
+| Source code | `~/.hermes/qiqiclaw/` |
 
 ---
 
 ## Contributor Quick Reference
 
-For occasional contributors and PR authors. Full developer docs: https://hermes-agent.nousresearch.com/docs/developer-guide/
+For occasional contributors and PR authors. Full developer docs: https://github.com/xzly111/qiqiclaw#readmedeveloper-guide/
 
 ### Project Layout
 
 <!-- ascii-guard-ignore -->
 ```
-hermes-agent/
+qiqiclaw/
 ├── run_agent.py          # AIAgent — core conversation loop
 ├── model_tools.py        # Tool discovery and dispatch
 ├── toolsets.py           # Toolset definitions
-├── cli.py                # Interactive CLI (HermesCLI)
+├── cli.py                # Interactive CLI (QiQiClawCLI)
 ├── hermes_state.py       # SQLite session store
 ├── agent/                # Prompt builder, context compression, memory, model routing, credential pooling, skill dispatch
 ├── hermes_cli/           # CLI subcommands, config, setup, commands
@@ -990,7 +990,7 @@ python -m pytest tests/tools/ -q            # Specific area
 - Run full suite before pushing any change
 - Use `-o 'addopts='` to clear any baked-in pytest flags
 
-**Windows contributors:** `scripts/run_tests.sh` currently looks for POSIX venvs (`.venv/bin/activate` / `venv/bin/activate`) and will error out on Windows where the layout is `venv/Scripts/activate` + `python.exe`. The Hermes-installed venv at `venv/Scripts/` also has no `pip` or `pytest` — it's stripped for end-user install size. Workaround: install pytest + pytest-xdist + pyyaml into a system Python 3.11 user site (`/c/Program Files/Python311/python -m pip install --user pytest pytest-xdist pyyaml`), then run tests directly:
+**Windows contributors:** `scripts/run_tests.sh` currently looks for POSIX venvs (`.venv/bin/activate` / `venv/bin/activate`) and will error out on Windows where the layout is `venv/Scripts/activate` + `python.exe`. The QiQiClaw-installed venv at `venv/Scripts/` also has no `pip` or `pytest` — it's stripped for end-user install size. Workaround: install pytest + pytest-xdist + pyyaml into a system Python 3.11 user site (`/c/Program Files/Python311/python -m pip install --user pytest pytest-xdist pyyaml`), then run tests directly:
 
 ```bash
 export PYTHONPATH="$(pwd)"

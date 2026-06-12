@@ -1,6 +1,6 @@
 {
   "name": "qiqiclaw",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "An AI agent with advanced tool-calling capabilities, featuring a flexible toolsets system for organizing and managing tools.",
   "private": true,
   "workspaces": [
@@ -24,13 +24,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AaronWong1999/qiqiclaw.git"
+    "url": "git+https://github.com/xzly111/qiqiclaw.git"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/AaronWong1999/qiqiclaw/issues"
+    "url": "https://github.com/xzly111/qiqiclaw/issues"
   },
-  "homepage": "https://github.com/AaronWong1999/qiqiclaw#readme",
+  "homepage": "https://github.com/xzly111/qiqiclaw#readme",
   "dependencies": {
     "@streamdown/math": "^1.0.2",
     "agent-browser": "^0.26.0"

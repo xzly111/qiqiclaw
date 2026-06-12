@@ -2,11 +2,16 @@ export {}
 
 declare global {
   interface Window {
-    hermesDesktop: {
+    hermesDesktop: QiQiClawDesktopBridge
+    qiqiDesktop: QiQiClawDesktopBridge
+  }
+}
+
+export interface QiQiClawDesktopBridge {
       // Resolve a backend connection. Omit `profile` (or pass the primary) for
       // the window's backend; pass a named profile to lazily spawn/reuse that
       // profile's backend from the pool.
-      getConnection: (profile?: string | null) => Promise<HermesConnection>
+      getConnection: (profile?: string | null) => Promise<QiQiClawConnection>
       // Reconnect-after-wake recovery: liveness-probe the cached PRIMARY backend
       // and drop it if a remote one has gone unreachable, so the next
       // getConnection() rebuilds a reachable descriptor instead of the renderer
@@ -33,21 +38,21 @@ declare global {
         // clear the preference.
         set: (name: string | null) => Promise<DesktopActiveProfile>
       }
-      api: <T>(request: HermesApiRequest) => Promise<T>
-      notify: (payload: HermesNotification) => Promise<boolean>
+      api: <T>(request: QiQiClawApiRequest) => Promise<T>
+      notify: (payload: QiQiClawNotification) => Promise<boolean>
       requestMicrophoneAccess: () => Promise<boolean>
       readFileDataUrl: (filePath: string) => Promise<string>
-      readFileText: (filePath: string) => Promise<HermesReadFileTextResult>
-      selectPaths: (options?: HermesSelectPathsOptions) => Promise<string[]>
+      readFileText: (filePath: string) => Promise<QiQiClawReadFileTextResult>
+      selectPaths: (options?: QiQiClawSelectPathsOptions) => Promise<string[]>
       writeClipboard: (text: string) => Promise<boolean>
       saveImageFromUrl: (url: string) => Promise<boolean>
       saveImageBuffer: (data: ArrayBuffer | Uint8Array, ext: string) => Promise<string>
       saveClipboardImage: () => Promise<string>
       getPathForFile: (file: File) => string
-      normalizePreviewTarget: (target: string, baseDir?: string) => Promise<HermesPreviewTarget | null>
-      watchPreviewFile: (url: string) => Promise<HermesPreviewWatch>
+      normalizePreviewTarget: (target: string, baseDir?: string) => Promise<QiQiClawPreviewTarget | null>
+      watchPreviewFile: (url: string) => Promise<QiQiClawPreviewWatch>
       stopPreviewFileWatch: (id: string) => Promise<boolean>
-      setTitleBarTheme?: (payload: HermesTitleBarTheme) => void
+      setTitleBarTheme?: (payload: QiQiClawTitleBarTheme) => void
       setPreviewShortcutActive?: (active: boolean) => void
       openExternal: (url: string) => Promise<void>
       fetchLinkTitle: (url: string) => Promise<string>
@@ -58,20 +63,20 @@ declare global {
       }
       revealLogs: () => Promise<{ ok: boolean; path: string; error?: string }>
       getRecentLogs: () => Promise<{ path: string; lines: string[] }>
-      readDir: (path: string) => Promise<HermesReadDirResult>
+      readDir: (path: string) => Promise<QiQiClawReadDirResult>
       gitRoot?: (path: string) => Promise<string | null>
       terminal: {
         dispose: (id: string) => Promise<boolean>
         onData: (id: string, callback: (payload: string) => void) => () => void
-        onExit: (id: string, callback: (payload: HermesTerminalExit) => void) => () => void
+        onExit: (id: string, callback: (payload: QiQiClawTerminalExit) => void) => () => void
         resize: (id: string, size: { cols: number; rows: number }) => Promise<boolean>
-        start: (options?: { cols?: number; cwd?: string; rows?: number }) => Promise<HermesTerminalSession>
+        start: (options?: { cols?: number; cwd?: string; rows?: number }) => Promise<QiQiClawTerminalSession>
         write: (id: string, data: string) => Promise<boolean>
       }
       onClosePreviewRequested?: (callback: () => void) => () => void
       onOpenUpdatesRequested?: (callback: () => void) => () => void
-      onWindowStateChanged?: (callback: (payload: HermesWindowState) => void) => () => void
-      onPreviewFileChanged: (callback: (payload: HermesPreviewFileChanged) => void) => () => void
+      onWindowStateChanged?: (callback: (payload: QiQiClawWindowState) => void) => () => void
+      onPreviewFileChanged: (callback: (payload: QiQiClawPreviewFileChanged) => void) => () => void
       onBackendExit: (callback: (payload: BackendExit) => void) => () => void
       onPowerResume?: (callback: () => void) => () => void
       onBootProgress: (callback: (payload: DesktopBootProgress) => void) => () => void
@@ -92,17 +97,15 @@ declare global {
         summary: () => Promise<DesktopUninstallSummary>
         run: (mode: DesktopUninstallMode) => Promise<DesktopUninstallResult>
       }
-    }
-  }
 }
 
-export interface HermesTerminalSession {
+export interface QiQiClawTerminalSession {
   cwd: string
   id: string
   shell: string
 }
 
-export interface HermesTerminalExit {
+export interface QiQiClawTerminalExit {
   code: number | null
   signal: string | null
 }
@@ -189,7 +192,7 @@ export interface DesktopUpdateProgress {
   at: number
 }
 
-export interface HermesConnection {
+export interface QiQiClawConnection {
   baseUrl: string
   isFullscreen: boolean
   mode?: 'local' | 'remote'
@@ -205,12 +208,12 @@ export interface HermesConnection {
   windowButtonPosition: { x: number; y: number } | null
 }
 
-export interface HermesTitleBarTheme {
+export interface QiQiClawTitleBarTheme {
   background: string
   foreground: string
 }
 
-export interface HermesWindowState {
+export interface QiQiClawWindowState {
   isFullscreen: boolean
   nativeOverlayWidth: number
   windowButtonPosition: { x: number; y: number } | null
@@ -351,7 +354,7 @@ export type DesktopBootstrapEvent =
       docsUrl: string
     }
 
-export interface HermesApiRequest {
+export interface QiQiClawApiRequest {
   path: string
   method?: string
   body?: unknown
@@ -362,13 +365,13 @@ export interface HermesApiRequest {
   profile?: string | null
 }
 
-export interface HermesNotification {
+export interface QiQiClawNotification {
   title?: string
   body?: string
   silent?: boolean
 }
 
-export interface HermesPreviewTarget {
+export interface QiQiClawPreviewTarget {
   binary?: boolean
   byteSize?: number
   kind: 'file' | 'url'
@@ -383,7 +386,7 @@ export interface HermesPreviewTarget {
   url: string
 }
 
-export interface HermesReadFileTextResult {
+export interface QiQiClawReadFileTextResult {
   binary?: boolean
   byteSize?: number
   language?: string
@@ -393,29 +396,29 @@ export interface HermesReadFileTextResult {
   truncated?: boolean
 }
 
-export interface HermesPreviewWatch {
+export interface QiQiClawPreviewWatch {
   id: string
   path: string
 }
 
-export interface HermesReadDirEntry {
+export interface QiQiClawReadDirEntry {
   name: string
   path: string
   isDirectory: boolean
 }
 
-export interface HermesReadDirResult {
-  entries: HermesReadDirEntry[]
+export interface QiQiClawReadDirResult {
+  entries: QiQiClawReadDirEntry[]
   error?: string
 }
 
-export interface HermesPreviewFileChanged {
+export interface QiQiClawPreviewFileChanged {
   id: string
   path: string
   url: string
 }
 
-export interface HermesSelectPathsOptions {
+export interface QiQiClawSelectPathsOptions {
   title?: string
   defaultPath?: string
   directories?: boolean

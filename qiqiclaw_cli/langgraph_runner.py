@@ -188,13 +188,24 @@ def qiqiclaw_oneshot_runner(
     model: str | None = None,
     provider: str | None = None,
     toolsets: list[str] | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    api_mode: str | None = None,
 ) -> str:
     """Run the existing QiQiClaw oneshot agent as a LangGraph node."""
     from qiqiclaw_cli.oneshot import _run_agent
 
     os.environ["QIQICLAW_YOLO_MODE"] = "1"
     _set_legacy_env("ACCEPT_HOOKS", "1")
-    return _run_agent(prompt, model=model, provider=provider, toolsets=toolsets) or ""
+    return _run_agent(
+        prompt,
+        model=model,
+        provider=provider,
+        toolsets=toolsets,
+        base_url=base_url,
+        api_key=api_key,
+        api_mode=api_mode,
+    ) or ""
 
 
 def build_qiqiclaw_graph(

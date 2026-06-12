@@ -2,7 +2,7 @@
   "name": "qiqiclaw-desktop",
   "productName": "QiQiClaw Desktop",
   "private": true,
-  "version": "0.15.1",
+  "version": "2.0.0",
   "description": "Native desktop shell for QiQiClaw.",
   "author": "QiQiClaw",
   "type": "module",

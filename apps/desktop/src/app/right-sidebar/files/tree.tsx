@@ -61,15 +61,18 @@ export function ProjectTree({
 
   const handleToggle = useCallback(
     (id: string) => {
-      const node = treeRef.current?.get(id)
+      const tree = treeRef.current
+      const node = tree?.get(id)
 
       if (!node) {
         return
       }
 
-      onNodeOpenChange(id, node.isOpen)
+      const isOpen = Boolean(tree?.openState?.[id])
 
-      if (node.isOpen && node.data?.isDirectory && node.data.children === undefined) {
+      onNodeOpenChange(id, isOpen)
+
+      if (isOpen && node.data?.isDirectory && node.data.children === undefined) {
         void onLoadChildren(id)
       }
     },
@@ -129,7 +132,6 @@ function TreeSizingState() {
 }
 
 function ProjectTreeRow({
-  dragHandle,
   node,
   onAttachFile,
   onAttachFolder,
@@ -146,6 +148,9 @@ function ProjectTreeRow({
 
   const isFolder = node.data.isDirectory
   const isPlaceholder = node.data.id.endsWith('::__loading__')
+  const attachPath = () => {
+    ;(isFolder ? onAttachFolder : onAttachFile)(node.data.id)
+  }
 
   return (
     <div
@@ -165,7 +170,7 @@ function ProjectTreeRow({
         }
 
         if (event.shiftKey) {
-          ;(isFolder ? onAttachFolder : onAttachFile)(node.data.id)
+          attachPath()
 
           return
         }
@@ -196,7 +201,6 @@ function ProjectTreeRow({
         event.dataTransfer.setData('application/x-hermes-paths', payload)
         event.dataTransfer.setData('text/plain', node.data.id)
       }}
-      ref={dragHandle}
       style={style}
     >
       {isFolder && !isPlaceholder && (

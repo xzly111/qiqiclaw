@@ -2,7 +2,7 @@
 name: watchers
 description: Poll RSS, JSON APIs, and GitHub with watermark dedup.
 version: 1.0.0
-author: Hermes Agent
+author: QIQI-Claw
 license: MIT
 platforms: [linux, macos]
 metadata:
@@ -66,7 +66,7 @@ Watch a GitHub repo (set `GITHUB_TOKEN` in `~/.hermes/.env` to avoid the 60 req/
 
 ```bash
 python $HERMES_HOME/skills/devops/watchers/scripts/watch_github.py \
-  --name hermes-issues --repo NousResearch/hermes-agent --scope issues
+  --name qiqiclaw-issues --repo xzly111/qiqiclaw --scope issues
 ```
 
 Poll an arbitrary JSON API:
@@ -109,4 +109,3 @@ All three scripts use the same template: load watermark, fetch, diff, save, emit
 2. **Expecting the first run to emit items.** It won't — first run records a baseline. If you need an initial digest, delete the state file after the first run or add a `--prime-with-latest N` flag in your own script.
 3. **Unbounded watermark growth.** The shared helper caps at 500 IDs. Raise it for high-churn feeds; lower it on constrained filesystems.
 4. **Putting the state dir where the agent's sandbox can't write.** `$HERMES_HOME/watcher-state/` is always writable. Docker/Modal backends may not see arbitrary host paths.
-

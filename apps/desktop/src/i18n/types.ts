@@ -65,7 +65,7 @@ export interface Translations {
       loadingSettings: string
       loadingSessions: string
       startingDesktopConnection: string
-      startingHermesDesktop: string
+      startingQiQiClawDesktop: string
     }
     errors: {
       backgroundExited: string
@@ -111,7 +111,7 @@ export interface Translations {
     copyDetailFailed: string
     backendOutOfDateTitle: string
     backendOutOfDateMessage: string
-    updateHermes: string
+    updateQiQiClaw: string
     updateReadyTitle: string
     updateReadyMessage: (count: number) => string
     seeWhatsNew: string
@@ -193,8 +193,8 @@ export interface Translations {
     resetFailed: string
     nav: {
       providers: string
-      providerAccounts: string
-      providerApiKeys: string
+      providerModels: string
+      providerCredentials: string
       gateway: string
       apiKeys: string
       keysTools: string
@@ -394,15 +394,18 @@ export interface Translations {
       tasks: Record<string, AuxTaskCopy>
     }
     providers: {
-      connectAccount: string
-      haveApiKey: string
-      intro: string
-      connected: string
-      collapse: string
-      connectAnother: string
-      otherProviders: string
       noProviderKeys: string
       loading: string
+      credentialPoolTitle: string
+      credentialPoolDesc: string
+      credentialPoolLoading: string
+      credentialPoolEmpty: string
+      credentialPoolRedacted: string
+      provider: string
+      apiKey: string
+      label: string
+      add: string
+      requests: (count: number) => string
     }
     sessions: {
       loading: string
@@ -554,7 +557,7 @@ export interface Translations {
     gatewayStopped: string
     hermesActiveSessions: (version: string, count: number) => string
     restartMessaging: string
-    updateHermes: string
+    updateQiQiClaw: string
     actionRunning: string
     actionDone: string
     actionFailed: string
@@ -593,6 +596,8 @@ export interface Translations {
     credentialsSet: string
     needsSetup: string
     gatewayStopped: string
+    gatewayRestartFailed: string
+    gatewayRestartStarted: string
     getCredentials: string
     openSetupGuide: string
     required: string

@@ -39,11 +39,11 @@ def has_provider() -> bool:
 
 
 def build_auth_methods() -> list[Any]:
-    """Return registry-compatible ACP auth methods for Hermes.
+    """Return registry-compatible ACP auth methods for QIQI-Claw.
 
     The official ACP registry validates that agents advertise at least one
     usable auth method during the initial handshake. A fresh Zed install may
-    not have Hermes provider credentials configured yet, so Hermes always
+    not have QIQI-Claw provider credentials configured yet, so QIQI-Claw always
     advertises a terminal setup method. When credentials are already present,
     it also advertises the resolved provider as the default agent-managed
     runtime credential method.
@@ -58,7 +58,7 @@ def build_auth_methods() -> list[Any]:
                 id=provider,
                 name=f"{provider} runtime credentials",
                 description=(
-                    "Authenticate Hermes using the currently configured "
+                    "Authenticate QIQI-Claw using the currently configured "
                     f"{provider} runtime credentials."
                 ),
             )
@@ -67,10 +67,10 @@ def build_auth_methods() -> list[Any]:
     methods.append(
         TerminalAuthMethod(
             id=TERMINAL_SETUP_AUTH_METHOD_ID,
-            name="Configure Hermes provider",
+            name="Configure QIQI-Claw provider",
             description=(
-                "Open Hermes' interactive model/provider setup in a terminal. "
-                "Use this when Hermes has not been configured on this machine yet."
+                "Open QIQI-Claw's interactive model/provider setup in a terminal. "
+                "Use this when QIQI-Claw has not been configured on this machine yet."
             ),
             type="terminal",
             args=["--setup"],

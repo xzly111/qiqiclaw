@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { HermesReadDirResult } from '@/global'
+import type { QiQiClawReadDirResult } from '@/global'
 
 import { resetProjectTreeState, useProjectTree } from './use-project-tree'
 
-const readDir = vi.fn<(path: string) => Promise<HermesReadDirResult>>()
+const readDir = vi.fn<(path: string) => Promise<QiQiClawReadDirResult>>()
 
 beforeEach(() => {
   resetProjectTreeState()
@@ -18,7 +18,7 @@ afterEach(() => {
   delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
 })
 
-function ok(entries: { name: string; path: string; isDirectory: boolean }[]): HermesReadDirResult {
+function ok(entries: { name: string; path: string; isDirectory: boolean }[]): QiQiClawReadDirResult {
   return { entries }
 }
 
@@ -125,10 +125,10 @@ describe('useProjectTree', () => {
   it('dedupes concurrent loadChildren calls for the same id', async () => {
     readDir.mockResolvedValueOnce(ok([{ name: 'src', path: '/p/src', isDirectory: true }]))
 
-    let resolveChildren: ((value: HermesReadDirResult) => void) | undefined
+    let resolveChildren: ((value: QiQiClawReadDirResult) => void) | undefined
     readDir.mockImplementationOnce(
       () =>
-        new Promise<HermesReadDirResult>(resolve => {
+        new Promise<QiQiClawReadDirResult>(resolve => {
           resolveChildren = resolve
         })
     )
@@ -147,6 +147,46 @@ describe('useProjectTree', () => {
 
     // Mount load + a single folder fetch — duplicates were dropped.
     expect(readDir).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not reload a directory whose children are already loaded', async () => {
+    readDir.mockResolvedValueOnce(ok([{ name: 'src', path: '/p/src', isDirectory: true }]))
+    readDir.mockResolvedValueOnce(ok([{ name: 'a.ts', path: '/p/src/a.ts', isDirectory: false }]))
+
+    const { result } = renderHook(() => useProjectTree('/p'))
+
+    await waitFor(() => expect(result.current.data.length).toBe(1))
+
+    await act(async () => {
+      await result.current.loadChildren('/p/src')
+      await result.current.loadChildren('/p/src')
+    })
+
+    expect(readDir).toHaveBeenCalledTimes(2)
+    expect(result.current.data[0].children?.map(n => n.name)).toEqual(['a.ts'])
+  })
+
+  it('allows retrying a directory after a child load error', async () => {
+    readDir.mockResolvedValueOnce(ok([{ name: 'src', path: '/p/src', isDirectory: true }]))
+    readDir.mockResolvedValueOnce({ entries: [], error: 'EACCES' })
+    readDir.mockResolvedValueOnce(ok([{ name: 'fixed.ts', path: '/p/src/fixed.ts', isDirectory: false }]))
+
+    const { result } = renderHook(() => useProjectTree('/p'))
+
+    await waitFor(() => expect(result.current.data.length).toBe(1))
+
+    await act(async () => {
+      await result.current.loadChildren('/p/src')
+    })
+
+    expect(result.current.data[0].error).toBe('EACCES')
+
+    await act(async () => {
+      await result.current.loadChildren('/p/src')
+    })
+
+    expect(result.current.data[0].error).toBeUndefined()
+    expect(result.current.data[0].children?.map(n => n.name)).toEqual(['fixed.ts'])
   })
 
   it('refreshRoot reloads the root and clears prior error', async () => {

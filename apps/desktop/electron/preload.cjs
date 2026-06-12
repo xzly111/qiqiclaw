@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
-contextBridge.exposeInMainWorld('hermesDesktop', {
+const desktopBridge = {
   getConnection: profile => ipcRenderer.invoke('hermes:connection', profile),
   revalidateConnection: () => ipcRenderer.invoke('hermes:connection:revalidate'),
   touchBackend: profile => ipcRenderer.invoke('hermes:backend:touch', profile),
@@ -133,4 +133,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
       return () => ipcRenderer.removeListener('hermes:updates:progress', listener)
     }
   }
-})
+}
+
+contextBridge.exposeInMainWorld('hermesDesktop', desktopBridge)
+contextBridge.exposeInMainWorld('qiqiDesktop', desktopBridge)

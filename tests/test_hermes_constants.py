@@ -24,11 +24,11 @@ class TestGetDefaultHermesRoot:
         monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        assert get_default_hermes_root() == tmp_path / ".hermes"
+        assert get_default_hermes_root() == tmp_path / ".qiqiclaw"
 
     def test_hermes_home_is_native(self, tmp_path, monkeypatch):
         """When HERMES_HOME = ~/.qiqiclaw, returns ~/.qiqiclaw."""
-        native = tmp_path / ".hermes"
+        native = tmp_path / ".qiqiclaw"
         native.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(native))
@@ -36,7 +36,7 @@ class TestGetDefaultHermesRoot:
 
     def test_hermes_home_is_profile(self, tmp_path, monkeypatch):
         """When HERMES_HOME is a profile under ~/.qiqiclaw, returns ~/.qiqiclaw."""
-        native = tmp_path / ".hermes"
+        native = tmp_path / ".qiqiclaw"
         profile = native / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -70,39 +70,35 @@ class TestGetDefaultHermesRoot:
         assert get_default_hermes_root() == docker_root
 
     def test_no_hermes_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
-        """Native Windows falls back to %LOCALAPPDATA%\\hermes, not ~/.qiqiclaw."""
-        local_appdata = tmp_path / "LocalAppData"
+        """Native Windows falls back to ~/.qiqiclaw."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
 
-        assert get_default_hermes_root() == local_appdata / "hermes"
+        assert get_default_hermes_root() == tmp_path / "Home" / ".qiqiclaw"
 
     def test_no_hermes_home_uses_windows_path_when_localappdata_missing(self, tmp_path, monkeypatch):
-        """Windows fallback still uses AppData/Local/hermes without LOCALAPPDATA."""
+        """Windows fallback still uses ~/.qiqiclaw without LOCALAPPDATA."""
         home = tmp_path / "Home"
         monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setattr(Path, "home", lambda: home)
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
 
-        assert get_default_hermes_root() == home / "AppData" / "Local" / "hermes"
+        assert get_default_hermes_root() == home / ".qiqiclaw"
 
 
 class TestGetHermesHome:
     """Tests for get_hermes_home() platform-aware fallback."""
 
     def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is unset on Windows, use %LOCALAPPDATA%\\hermes."""
-        local_appdata = tmp_path / "LocalAppData"
+        """When HERMES_HOME is unset on Windows, use ~/.qiqiclaw."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
         monkeypatch.setattr(hermes_constants.sys, "platform", "win32")
         monkeypatch.setattr(hermes_constants, "_profile_fallback_warned", False)
 
-        assert get_hermes_home() == local_appdata / "hermes"
+        assert get_hermes_home() == tmp_path / "Home" / ".qiqiclaw"
 
 
 class TestIsContainer:
@@ -297,4 +293,3 @@ class TestSecureParentDir:
         secure_parent_dir(link_target)
         assert len(called_with) == 1
         assert called_with[0] == (str(real_dir), 0o700)
-

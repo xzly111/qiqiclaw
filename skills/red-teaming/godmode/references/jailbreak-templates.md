@@ -89,7 +89,7 @@ Z={QUERY}
 
 ---
 
-## Using with Hermes Agent
+## Using with QIQI-Claw
 
 ### As ephemeral system prompt (config.yaml)
 

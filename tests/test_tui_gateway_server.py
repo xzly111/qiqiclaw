@@ -2357,6 +2357,239 @@ def test_config_set_model_records_per_session_override_not_env(monkeypatch):
         server._sessions.clear()
 
 
+def test_config_set_model_does_not_overwrite_builtin_base_url_from_old_ui(monkeypatch):
+    """Old desktop clients may still pass --base-url; built-in providers must keep resolved URLs."""
+
+    class _Agent:
+        provider = "custom"
+        model = "gpt-5.5"
+        base_url = "https://oneapi.hk/v1"
+        api_key = "sk-oneapi"
+        api_mode = "chat_completions"
+
+        def switch_model(self, **kwargs):
+            self.model = kwargs["new_model"]
+            self.provider = kwargs["new_provider"]
+            self.base_url = kwargs["base_url"]
+            self.api_key = kwargs["api_key"]
+            self.api_mode = kwargs["api_mode"]
+
+    result = types.SimpleNamespace(
+        success=True,
+        new_model="deepseek-v4-pro",
+        target_provider="deepseek",
+        api_key="sk-deepseek",
+        base_url="https://api.deepseek.com/v1",
+        api_mode="chat_completions",
+        warning_message="",
+    )
+
+    session = _session(agent=_Agent())
+    server._sessions["sid"] = session
+    monkeypatch.setattr(
+        "hermes_cli.model_switch.switch_model", lambda **_kwargs: result
+    )
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda session: None)
+    monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "config.set",
+                "params": {
+                    "session_id": "sid",
+                    "key": "model",
+                    "value": "deepseek-v4-pro --provider deepseek --base-url https://oneapi.hk/v1",
+                },
+            }
+        )
+
+        assert resp["result"]["value"] == "deepseek-v4-pro"
+        assert session["agent"].provider == "deepseek"
+        assert session["agent"].base_url == "https://api.deepseek.com/v1"
+        assert session["model_override"]["provider"] == "deepseek"
+        assert session["model_override"]["base_url"] == "https://api.deepseek.com/v1"
+    finally:
+        server._sessions.clear()
+
+
+def test_prompt_submit_natural_language_model_switch_uses_live_switch(monkeypatch):
+    class _Agent:
+        provider = "deepseek"
+        model = "deepseek-v4-pro"
+        base_url = "https://api.deepseek.com/v1"
+        api_key = "sk-old"
+        api_mode = "chat_completions"
+
+        def switch_model(self, **kwargs):
+            self.model = kwargs["new_model"]
+            self.provider = kwargs["new_provider"]
+            self.base_url = kwargs["base_url"]
+            self.api_key = kwargs["api_key"]
+            self.api_mode = kwargs["api_mode"]
+
+        def run_conversation(self, *_args, **_kwargs):
+            raise AssertionError("natural-language model switch must not hit the LLM")
+
+    session = _session(agent=_Agent())
+    server._sessions["sid"] = session
+    emits: list[tuple] = []
+    switch_calls: list[dict] = []
+
+    def fake_switch_model(**kwargs):
+        switch_calls.append(kwargs)
+        return types.SimpleNamespace(
+            success=True,
+            new_model="gpt-5.5",
+            target_provider="custom",
+            api_key="sk-oneapi",
+            base_url="https://oneapi.hk/v1",
+            api_mode="chat_completions",
+            warning_message="",
+        )
+
+    monkeypatch.setattr(
+        server,
+        "_verified_model_library_entries",
+        lambda: [
+            (
+                {
+                    "id": "custom:gpt-5.5",
+                    "name": "gpt-5.5",
+                    "provider": "custom",
+                    "model": "gpt-5.5",
+                    "base_url": "https://oneapi.hk/v1",
+                },
+                1,
+                {
+                    "base_url": "https://oneapi.hk/v1",
+                    "validated_models": {
+                        "gpt-5.5": {
+                            "status": "ok",
+                            "base_url": "https://oneapi.hk/v1",
+                        }
+                    },
+                },
+            )
+        ],
+    )
+    monkeypatch.setattr("hermes_cli.model_switch.switch_model", fake_switch_model)
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda _session: None)
+    monkeypatch.setattr(server, "_emit", lambda *args: emits.append(args))
+    monkeypatch.setattr(server, "_persist_control_message", lambda *_args: None)
+    monkeypatch.setattr(server, "_session_info", lambda agent, *_args: {"model": agent.model, "provider": agent.provider})
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {"session_id": "sid", "text": "请帮我切换到gpt5.5模型"},
+            }
+        )
+
+        assert resp["result"]["status"] == "complete"
+        assert resp["result"]["model"] == "gpt-5.5"
+        assert switch_calls[0]["raw_input"] == "gpt-5.5"
+        assert switch_calls[0]["explicit_provider"] == "custom"
+        assert switch_calls[0]["explicit_base_url"] == "https://oneapi.hk/v1"
+        assert session["agent"].model == "gpt-5.5"
+        assert session["agent"].provider == "custom"
+        assert session["model_override"]["model"] == "gpt-5.5"
+        assert session["history"][0]["content"] == "请帮我切换到gpt5.5模型"
+        assert "已在当前会话切换到 gpt-5.5" in session["history"][1]["content"]
+        assert any(call[0] == "message.complete" for call in emits)
+    finally:
+        server._sessions.clear()
+
+
+def test_prompt_submit_model_switch_prefers_current_provider_for_duplicate_model(monkeypatch):
+    class _Agent:
+        provider = "deepseek"
+        model = "deepseek-v4-flash"
+        base_url = "https://api.deepseek.com/v1"
+        api_key = "sk-old"
+        api_mode = "chat_completions"
+
+        def switch_model(self, **kwargs):
+            self.model = kwargs["new_model"]
+            self.provider = kwargs["new_provider"]
+            self.base_url = kwargs["base_url"]
+            self.api_key = kwargs["api_key"]
+            self.api_mode = kwargs["api_mode"]
+
+        def run_conversation(self, *_args, **_kwargs):
+            raise AssertionError("natural-language model switch must not hit the LLM")
+
+    session = _session(agent=_Agent())
+    server._sessions["sid"] = session
+    switch_calls: list[dict] = []
+
+    def fake_switch_model(**kwargs):
+        switch_calls.append(kwargs)
+        return types.SimpleNamespace(
+            success=True,
+            new_model="deepseek-v4-pro",
+            target_provider="deepseek",
+            api_key="sk-deepseek",
+            base_url="https://api.deepseek.com/v1",
+            api_mode="chat_completions",
+            warning_message="",
+        )
+
+    monkeypatch.setattr(
+        server,
+        "_verified_model_library_entries",
+        lambda: [
+            (
+                {
+                    "id": "custom:deepseek-v4-pro",
+                    "name": "deepseek-v4-pro",
+                    "provider": "custom",
+                    "model": "deepseek-v4-pro",
+                    "base_url": "https://oneapi.hk/v1",
+                },
+                1,
+                {"validated_models": {"deepseek-v4-pro": {"status": "ok", "base_url": "https://oneapi.hk/v1"}}},
+            ),
+            (
+                {
+                    "id": "deepseek:deepseek-v4-pro",
+                    "name": "deepseek-v4-pro",
+                    "provider": "deepseek",
+                    "model": "deepseek-v4-pro",
+                    "base_url": "https://api.deepseek.com/v1",
+                },
+                1,
+                {"validated_models": {"deepseek-v4-pro": {"status": "ok", "base_url": "https://api.deepseek.com/v1"}}},
+            ),
+        ],
+    )
+    monkeypatch.setattr("hermes_cli.model_switch.switch_model", fake_switch_model)
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda _session: None)
+    monkeypatch.setattr(server, "_emit", lambda *_args: None)
+    monkeypatch.setattr(server, "_persist_control_message", lambda *_args: None)
+    monkeypatch.setattr(server, "_session_info", lambda agent, *_args: {"model": agent.model, "provider": agent.provider})
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {"session_id": "sid", "text": "换成 deepseek-v4-pro"},
+            }
+        )
+
+        assert resp["result"]["model"] == "deepseek-v4-pro"
+        assert switch_calls[0]["raw_input"] == "deepseek-v4-pro"
+        assert switch_calls[0]["explicit_provider"] == "deepseek"
+        assert switch_calls[0]["explicit_base_url"] == ""
+        assert session["agent"].provider == "deepseek"
+    finally:
+        server._sessions.clear()
+
+
 def test_config_set_model_switches_agent_without_touching_env(monkeypatch):
     """A /model switch mutates the target session's agent in place and records
     a per-session override; it does NOT write HERMES_MODEL / HERMES_TUI_PROVIDER

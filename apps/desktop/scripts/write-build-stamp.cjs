@@ -13,7 +13,8 @@
  *     "branch":        "<branch name>",
  *     "builtAt":       "<ISO 8601 UTC timestamp>",
  *     "dirty":         true|false,
- *     "source":        "ci" | "local"
+ *     "source":        "ci" | "local",
+ *     "installSource": "github" | "gitee"
  *   }
  *
  * Source preference order:
@@ -31,6 +32,16 @@ const path = require("path")
 const { execSync } = require("child_process")
 
 const STAMP_SCHEMA_VERSION = 1
+const INSTALL_SOURCES = {
+  github: {
+    rawBaseUrl: "https://raw.githubusercontent.com/xzly111/qiqiclaw",
+    repoHttps: "https://github.com/xzly111/qiqiclaw.git"
+  },
+  gitee: {
+    rawBaseUrl: "https://gitee.com/szd20020329/qiqiclaw/raw",
+    repoHttps: "https://gitee.com/szd20020329/qiqiclaw.git"
+  }
+}
 
 const DESKTOP_ROOT = path.resolve(__dirname, "..")
 const REPO_ROOT = path.resolve(DESKTOP_ROOT, "..", "..")
@@ -77,8 +88,24 @@ function fromLocalGit() {
   }
 }
 
+function installSourceFromEnv() {
+  const value = (process.env.QIQICLAW_INSTALL_SOURCE || process.env.HERMES_INSTALL_SOURCE || "github")
+    .trim()
+    .toLowerCase()
+  if (!Object.prototype.hasOwnProperty.call(INSTALL_SOURCES, value)) {
+    console.error(
+      `[write-build-stamp] ERROR: unsupported QIQICLAW_INSTALL_SOURCE=${value}. ` +
+        `Use one of: ${Object.keys(INSTALL_SOURCES).join(", ")}`
+    )
+    process.exit(1)
+  }
+  return value
+}
+
 function main() {
   const stamp = fromCI() || fromLocalGit()
+  const installSource = installSourceFromEnv()
+  const sourceConfig = INSTALL_SOURCES[installSource]
   if (!stamp || !stamp.commit) {
     console.error(
       "[write-build-stamp] ERROR: could not determine git commit.\n" +
@@ -108,7 +135,10 @@ function main() {
     branch: stamp.branch,
     builtAt: new Date().toISOString(),
     dirty: stamp.dirty,
-    source: stamp.source
+    source: stamp.source,
+    installSource,
+    rawBaseUrl: sourceConfig.rawBaseUrl,
+    repoHttps: sourceConfig.repoHttps
   }
 
   fs.mkdirSync(OUT_DIR, { recursive: true })
@@ -119,7 +149,8 @@ function main() {
       " -> " +
       stamp.commit.slice(0, 12) +
       (stamp.branch ? " (" + stamp.branch + ")" : "") +
-      (stamp.dirty ? " [DIRTY]" : "")
+      (stamp.dirty ? " [DIRTY]" : "") +
+      ` [${installSource}]`
   )
 }
 

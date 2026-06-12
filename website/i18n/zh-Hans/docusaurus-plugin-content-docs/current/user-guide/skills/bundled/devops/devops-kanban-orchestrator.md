@@ -24,7 +24,7 @@ description: "用于通过 Kanban 路由工作的编排器 profile 的任务分�
 ## 参考：完整 SKILL.md
 
 :::info
-以下是 Hermes 在触发此 skill 时加载的完整 skill 定义。这是 skill 激活时 agent 所看到的指令内容。
+以下是 QiQiClaw 在触发此 skill 时加载的完整 skill 定义。这是 skill 激活时 agent 所看到的指令内容。
 :::
 
 # Kanban Orchestrator — 任务分解手册
@@ -33,7 +33,7 @@ description: "用于通过 Kanban 路由工作的编排器 profile 的任务分�
 
 ## Profile 由用户配置——不是固定名单
 
-Hermes 的配置因人而异。有些用户运行单个 profile 处理所有事务；有些运行小型集群（`docker-worker`、`cron-worker`）；有些运行自己命名的精选专家团队。**没有默认的专家名单**——编排器 skill 不知道此机器上存在哪些 profile。
+QiQiClaw 的配置因人而异。有些用户运行单个 profile 处理所有事务；有些运行小型集群（`docker-worker`、`cron-worker`）；有些运行自己命名的精选专家团队。**没有默认的专家名单**——编排器 skill 不知道此机器上存在哪些 profile。
 
 在扇出之前，你必须基于实际存在的 profile 来制定分解方案。调度器会静默地忽略无法识别的 assignee 名称——它不会自动纠正、不会建议、也不会回退。因此，在只有 `docker-worker` 的配置上，分配给 `researcher` 的卡片会永远停留在 `ready` 状态。
 

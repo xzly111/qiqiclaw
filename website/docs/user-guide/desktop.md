@@ -1,17 +1,17 @@
 ---
 sidebar_position: 3
 title: "Desktop App"
-description: "The native Hermes desktop app — a polished experience for chatting with Hermes, with streaming tool output, side-by-side previews, a file browser, voice, cron, profiles, skills, and settings. macOS, Windows, and Linux."
+description: "The native QiQiClaw desktop app — a polished experience for chatting with QiQiClaw, with streaming tool output, side-by-side previews, a file browser, voice, cron, profiles, skills, and settings. macOS, Windows, and Linux."
 ---
 
 # Desktop App
 
-The Hermes desktop app is a native app built around the **same** agent you get from the CLI and the gateway — same config, same API keys, same sessions, same skills, same memory. It is not a separate product or a lightweight clone; it uses the same Hermes Agent core and settings, and drives it through a modern & thoughtfully designed UI. If you have used `hermes` in a terminal, everything you set up there is already here, and anything you do here shows up there.
+The QiQiClaw desktop app is a native app built around the **same** agent you get from the CLI and the gateway — same config, same API keys, same sessions, same skills, same memory. It is not a separate product or a lightweight clone; it uses the same QIQI-Claw core and settings, and drives it through a modern & thoughtfully designed UI. If you have used `hermes` in a terminal, everything you set up there is already here, and anything you do here shows up there.
 
 It runs on **macOS, Windows, and Linux**.
 
 :::tip Which interface is which?
-Hermes has several front ends that all talk to the same agent:
+QiQiClaw has several front ends that all talk to the same agent:
 
 - **Desktop App** (this page) — a native application with a purpose-built UI for chat, configuration, and management.
 - **CLI** (`hermes`) and **[TUI](./tui.md)** (`hermes --tui`) — terminal interfaces.
@@ -22,12 +22,12 @@ Pick whichever fits the moment. They share state, so you can start a session in 
 
 ## Install
 
-Follow the [installation instructions for Hermes Desktop](../getting-started/installation.md).
+Follow the [installation instructions for QIQI-Claw Desktop](../getting-started/installation.md).
 
-If you already have Hermes installed, simply run
+If you already have QiQiClaw installed, simply run
 
 ```bash
-hermes desktop
+QiQiClaw Desktop
 ```
 
 That uses your current config, keys, sessions, and skills.
@@ -41,7 +41,7 @@ The desktop app is organized as a chat-first window with a left sidebar for navi
 The center of the app. You get:
 
 - **Streaming responses** with live tool activity and structured tool-call summaries as the agent works.
-- **The same conversation history** as every other Hermes surface — sessions started here resume in the CLI/TUI and vice versa.
+- **The same conversation history** as every other QiQiClaw surface — sessions started here resume in the CLI/TUI and vice versa.
 - **Drag-and-drop files** anywhere in the chat area to attach them to your next message.
 - **A right-hand preview rail** — render web pages, files, and tool outputs side by side while you keep chatting.
 - **Composer history and queue editing** — press the up/down arrow keys in an empty composer to recall and reuse previous prompts, and edit messages you've queued up before they're sent.
@@ -53,15 +53,15 @@ The bar along the bottom of the chat shows live session state and exposes quick 
 - **Inline model picker** — switch the model for the active session straight from the status bar.
 - **Per-session YOLO toggle** — flip YOLO on or off for just this session (matching the TUI). YOLO bypasses the dangerous-command approval prompts, so know what you're turning off — see [Security → YOLO Mode](./security.md#yolo-mode).
 
-Chatting against a Hermes instance on another machine instead of the bundled local backend? See [Connecting to a remote backend](#connecting-to-a-remote-backend) below — and for the full picture of how the remote-hosted dashboard connection works (the auth gate, the `/api/ws` chat socket, and WebSocket close-code triage), see [Web Dashboard → Connecting Hermes Desktop to a remote backend](./features/web-dashboard.md#connecting-hermes-desktop-to-a-remote-backend).
+Chatting against a QiQiClaw instance on another machine instead of the bundled local backend? See [Connecting to a remote backend](#connecting-to-a-remote-backend) below — and for the full picture of how the remote-hosted dashboard connection works (the auth gate, the `/api/ws` chat socket, and WebSocket close-code triage), see [Web Dashboard → Connecting QIQI-Claw Desktop to a remote backend](./features/web-dashboard.md#connecting-qiqiclaw-desktop-to-a-remote-backend).
 
 ### File browser
 
-Explore and preview the working directory without leaving the app — useful for following along as the agent reads, writes, and edits files. Set the initial project directory with `hermes desktop --cwd <path>` (or the `HERMES_DESKTOP_CWD` environment variable).
+Explore and preview the working directory without leaving the app — useful for following along as the agent reads, writes, and edits files. Set the initial project directory with `QiQiClaw Desktop --cwd <path>` (or the `HERMES_DESKTOP_CWD` environment variable).
 
 ### Voice
 
-Talk to Hermes and hear it back, the same [voice mode](./features/voice-mode.md) available elsewhere. On macOS the OS will prompt once for microphone access.
+Talk to QiQiClaw and hear it back, the same [voice mode](./features/voice-mode.md) available elsewhere. On macOS the OS will prompt once for microphone access.
 
 ### Settings & onboarding
 
@@ -77,11 +77,11 @@ First-run onboarding has been redesigned on a unified overlay design system, and
 
 ### Management panes
 
-The app also surfaces the broader Hermes management surface so you don't have to drop to a terminal:
+The app also surfaces the broader QiQiClaw management surface so you don't have to drop to a terminal:
 
 - **Skills** — browse, install, and manage [skills](./features/skills.md).
 - **Cron** — view and manage [scheduled jobs](../reference/cli-commands.md#hermes-cron).
-- **Profiles** — switch between [Hermes profiles](./profiles.md) (isolated config/skills/sessions).
+- **Profiles** — switch between [QiQiClaw profiles](./profiles.md) (isolated config/skills/sessions).
 - **Messaging** — set up gateway channels.
 - **Agents** and **Command Center** — orchestration surfaces for multi-agent work.
 
@@ -102,13 +102,13 @@ The app also surfaces the broader Hermes management surface so you don't have to
 
 The app checks for updates in the background and offers a one-click update when one is ready.
 
-The [manual update process](https://hermes-agent.nousresearch.com/docs/getting-started/updating) also works with the GUI.
+The [manual update process](https://github.com/xzly111/qiqiclaw#readmegetting-started/updating) also works with the GUI.
 
 ## Uninstalling
 
 Open **Settings → About → Danger zone** and pick how much to remove:
 
-- **Uninstall Chat GUI only** — removes the desktop app and its data; the Hermes agent, your config, and your chats stay. (Same as `hermes uninstall --gui`.)
+- **Uninstall Chat GUI only** — removes the desktop app and its data; the QIQI-Claw, your config, and your chats stay. (Same as `hermes uninstall --gui`.)
 - **Uninstall GUI + agent, keep my data** — removes the app and the agent but keeps config, chats, and secrets for a future reinstall. (Same as `hermes uninstall`.)
 - **Uninstall everything** — removes the app, the agent, and all user data. (Same as `hermes uninstall --full`.)
 
@@ -117,12 +117,12 @@ The app closes to finish the job (the cleanup runs after it exits so it can remo
 You can do the same from the terminal — `hermes uninstall --gui` for the GUI alone, or `hermes uninstall` / `hermes uninstall --full` for the agent too.
 
 :::note
-Running `hermes uninstall --gui` from a **source checkout** (a `hermes desktop` dev build) also removes the workspace `node_modules` and `apps/desktop/{dist,release}` build output, since those are GUI build artifacts. They're recoverable with `hermes desktop` (or `npm install` + a rebuild) — but if you're actively hacking on the desktop app, expect to reinstall dependencies afterward.
+Running `hermes uninstall --gui` from a **source checkout** (a `QiQiClaw Desktop` dev build) also removes the workspace `node_modules` and `apps/desktop/{dist,release}` build output, since those are GUI build artifacts. They're recoverable with `QiQiClaw Desktop` (or `npm install` + a rebuild) — but if you're actively hacking on the desktop app, expect to reinstall dependencies afterward.
 :::
 
-## CLI reference: `hermes desktop`
+## CLI reference: `QiQiClaw Desktop`
 
-To launch via the CLI, simply run `hermes desktop`. By default it installs workspace Node dependencies, builds the current OS's unpacked Electron app, then launches that packaged artifact.
+To launch via the CLI, simply run `QiQiClaw Desktop`. By default it installs workspace Node dependencies, builds the current OS's unpacked Electron app, then launches that packaged artifact.
 
 | Flag                 | Description                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------------- |
@@ -131,17 +131,17 @@ To launch via the CLI, simply run `hermes desktop`. By default it installs works
 | `--build-only`       | Build the desktop app but do not launch it (used by `hermes update`)                      |
 | `--source`           | Launch via `electron .` against `apps/desktop/dist` instead of the packaged app           |
 | `--cwd PATH`         | Initial project directory for desktop chat sessions (sets `HERMES_DESKTOP_CWD`)           |
-| `--hermes-root PATH` | Override the Hermes source root the app uses (sets `HERMES_DESKTOP_HERMES_ROOT`)          |
+| `--hermes-root PATH` | Override the QiQiClaw source root the app uses (sets `HERMES_DESKTOP_HERMES_ROOT`)          |
 | `--ignore-existing`  | Force the app to ignore any `hermes` CLI already on `PATH` during backend resolution      |
 | `--fake-boot`        | Enable deterministic boot delays for validating the startup UI                            |
 
 ## How it works
 
-The packaged app ships only the Electron shell. On first launch it installs the Hermes Agent runtime into `HERMES_HOME` (`~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows) — **the same layout a CLI install uses**, which is why the two are interchangeable. The React renderer talks to a `hermes dashboard` backend over the standard gateway APIs and reuses the agent rather than reimplementing it. Install, backend-resolution, and self-update logic live in the Electron main process.
+The packaged app ships only the Electron shell. On first launch it installs the QIQI-Claw runtime into `HERMES_HOME` (`~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows) — **the same layout a CLI install uses**, which is why the two are interchangeable. The React renderer talks to a `hermes dashboard` backend over the standard gateway APIs and reuses the agent rather than reimplementing it. Install, backend-resolution, and self-update logic live in the Electron main process.
 
 ## Connecting to a remote backend
 
-By default the app starts and manages its own **local** backend. You can instead point it at a Hermes backend running on another machine — a VPS, a home server, or a Mini behind Tailscale.
+By default the app starts and manages its own **local** backend. You can instead point it at a QiQiClaw backend running on another machine — a VPS, a home server, or a Mini behind Tailscale.
 
 :::info The remote backend is a running `hermes dashboard` process
 "Remote backend" means a **`hermes dashboard`** server running on the remote machine — that is the process the desktop app connects to. Nothing in this section works unless that dashboard is actually up and reachable. The desktop app does not start it for you; you (or a `systemd` service) keep `hermes dashboard` running on the remote host, and the app attaches to it. If you also use messaging channels (Telegram, Discord, etc.), the **gateway** is a *separate* long-running process you start independently — see the note after the setup steps.
@@ -210,7 +210,7 @@ The remote gateway host is configured per [profile](./profiles.md), so each prof
 - **Signed out on every restart** — set `HERMES_DASHBOARD_BASIC_AUTH_SECRET` to a stable value. Without it the token-signing key is regenerated per boot, invalidating all sessions.
 - **Connection refused / times out** — the backend bound to `127.0.0.1` (the default) or a firewall/VPN is blocking the port. Bind to `0.0.0.0` or the tailscale IP and open the port to your trusted network.
 
-For the same setup from the web-dashboard angle, see [Web Dashboard → Connecting Hermes Desktop to a remote backend](./features/web-dashboard.md#connecting-hermes-desktop-to-a-remote-backend); the env vars are catalogued under [Environment Variables → Web Dashboard & Hermes Desktop](../reference/environment-variables.md#web-dashboard--hermes-desktop).
+For the same setup from the web-dashboard angle, see [Web Dashboard → Connecting QIQI-Claw Desktop to a remote backend](./features/web-dashboard.md#connecting-qiqiclaw-desktop-to-a-remote-backend); the env vars are catalogued under [Environment Variables → Web Dashboard & QIQI-Claw Desktop](../reference/environment-variables.md#web-dashboard--qiqiclaw-desktop).
 
 ## Troubleshooting
 
@@ -224,10 +224,10 @@ Common resets:
 
 ```bash
 # Force a clean first-launch setup (macOS/Linux)
-rm "$HOME/.hermes/hermes-agent/.hermes-bootstrap-complete"
+rm "$HOME/.hermes/qiqiclaw/.hermes-bootstrap-complete"
 
 # Rebuild a broken Python venv (macOS/Linux)
-rm -rf "$HOME/.hermes/hermes-agent/venv"
+rm -rf "$HOME/.hermes/qiqiclaw/venv"
 
 # Reset a stuck macOS microphone prompt
 tccutil reset Microphone com.nousresearch.hermes

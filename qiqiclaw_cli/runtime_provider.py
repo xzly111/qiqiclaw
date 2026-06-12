@@ -177,6 +177,26 @@ def _parse_api_mode(raw: Any) -> Optional[str]:
     return None
 
 
+def _pool_entry_base_url(provider: str, entry: PooledCredential, target_model: Optional[str]) -> str:
+    validated = getattr(entry, "validated_models", None)
+    model = str(target_model or "").strip()
+    if model and isinstance(validated, dict):
+        state = validated.get(model)
+        if isinstance(state, dict) and state.get("status") == "ok":
+            state_url = str(state.get("base_url") or "").strip().rstrip("/")
+            if state_url:
+                return state_url
+    base_url = (
+        getattr(entry, "runtime_base_url", None)
+        or getattr(entry, "base_url", None)
+        or ""
+    ).rstrip("/")
+    if base_url:
+        return base_url
+    pconfig = PROVIDER_REGISTRY.get(provider)
+    return (getattr(pconfig, "inference_base_url", "") or "").rstrip("/") if pconfig else ""
+
+
 def _resolve_runtime_from_pool_entry(
     *,
     provider: str,
@@ -194,7 +214,7 @@ def _resolve_runtime_from_pool_entry(
     # opencode-zen /v1 to be stripped for chat_completions requests when
     # config.default was still a Claude model.
     effective_model = (target_model or model_cfg.get("default") or "")
-    base_url = (getattr(entry, "runtime_base_url", None) or getattr(entry, "base_url", None) or "").rstrip("/")
+    base_url = _pool_entry_base_url(provider, entry, target_model)
     api_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
     api_mode = "chat_completions"
     if provider == "openai-codex":
@@ -320,31 +340,69 @@ def _try_resolve_from_custom_pool(
     base_url: str,
     provider_label: str,
     api_mode_override: Optional[str] = None,
+    target_model: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Check if a credential pool exists for a custom endpoint and return a runtime dict if so."""
     pool_key = get_custom_provider_pool_key(base_url)
-    if not pool_key:
+    pool_keys = [pool_key] if pool_key else []
+    if "custom" not in pool_keys:
+        pool_keys.append("custom")
+    if not pool_keys:
         return None
-    try:
-        pool = load_pool(pool_key)
+
+    for candidate_pool_key in pool_keys:
+        try:
+            pool = load_pool(candidate_pool_key)
+        except Exception:
+            continue
         if not pool.has_credentials():
-            return None
-        entry = pool.select()
+            continue
+        entry = _select_verified_pool_entry(
+            pool,
+            target_model=target_model,
+            base_url=base_url,
+        )
         if entry is None:
-            return None
+            continue
         pool_api_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
         if not pool_api_key:
-            return None
+            continue
         return {
             "provider": provider_label,
             "api_mode": api_mode_override or _detect_api_mode_for_url(base_url) or "chat_completions",
             "base_url": base_url,
             "api_key": pool_api_key,
-            "source": f"pool:{pool_key}",
+            "source": f"pool:{candidate_pool_key}",
             "credential_pool": pool,
         }
-    except Exception:
-        return None
+    return None
+
+
+def _entry_verified_for_model(entry: PooledCredential, *, target_model: Optional[str], base_url: str) -> bool:
+    model = str(target_model or "").strip()
+    if not model:
+        return False
+    validated = getattr(entry, "validated_models", None)
+    if not isinstance(validated, dict):
+        return False
+    state = validated.get(model)
+    if not isinstance(state, dict) or state.get("status") != "ok":
+        return False
+    state_url = str(state.get("base_url") or "").strip().rstrip("/")
+    target_url = str(base_url or "").strip().rstrip("/")
+    return not state_url or not target_url or state_url == target_url
+
+
+def _select_verified_pool_entry(
+    pool: CredentialPool,
+    *,
+    target_model: Optional[str] = None,
+    base_url: str = "",
+) -> Optional[PooledCredential]:
+    for entry in pool.entries():
+        if _entry_verified_for_model(entry, target_model=target_model, base_url=base_url):
+            return entry
+    return pool.select()
 
 
 def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, Any]]:
@@ -485,6 +543,7 @@ def _resolve_named_custom_runtime(
     requested_provider: str,
     explicit_api_key: Optional[str] = None,
     explicit_base_url: Optional[str] = None,
+    target_model: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     # Bare `provider="custom"` with an explicit base_url (e.g. propagated
     # from a `model_aliases:` direct-alias resolution) — build a runtime
@@ -522,7 +581,12 @@ def _resolve_named_custom_runtime(
         return None
 
     # Check if a credential pool exists for this custom endpoint
-    pool_result = _try_resolve_from_custom_pool(base_url, "custom", custom_provider.get("api_mode"))
+    pool_result = _try_resolve_from_custom_pool(
+        base_url,
+        "custom",
+        custom_provider.get("api_mode"),
+        target_model=target_model,
+    )
     if pool_result:
         # Propagate the model name even when using pooled credentials —
         # the pool doesn't know about the custom_providers model field.
@@ -642,7 +706,10 @@ def _resolve_openrouter_runtime(
     # For custom endpoints, check if a credential pool exists
     if effective_provider == "custom" and base_url:
         pool_result = _try_resolve_from_custom_pool(
-            base_url, effective_provider, _parse_api_mode(model_cfg.get("api_mode")),
+            base_url,
+            effective_provider,
+            _parse_api_mode(model_cfg.get("api_mode")),
+            target_model=target_model,
         )
         if pool_result:
             return pool_result
@@ -948,6 +1015,7 @@ def resolve_runtime_provider(
         requested_provider=requested_provider,
         explicit_api_key=explicit_api_key,
         explicit_base_url=explicit_base_url,
+        target_model=target_model,
     )
     if custom_runtime:
         custom_runtime["requested_provider"] = requested_provider

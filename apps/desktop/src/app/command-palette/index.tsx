@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { getHermesConfigRecord, listSessions } from '@/hermes'
+import { getQiQiClawConfigRecord, listSessions } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import {
@@ -103,8 +103,8 @@ type NonConfigSettingsLabel =
   | 'keysSettings'
   | 'keysTools'
   | 'mcp'
-  | 'providerAccounts'
-  | 'providerApiKeys'
+  | 'providerCredentials'
+  | 'providerModels'
 
 const NON_CONFIG_SETTINGS: ReadonlyArray<{
   icon: IconComponent
@@ -114,15 +114,15 @@ const NON_CONFIG_SETTINGS: ReadonlyArray<{
 }> = [
   {
     icon: Zap,
-    keywords: ['accounts', 'sign in', 'oauth', 'login', 'subscription', 'models', 'anthropic', 'openai'],
-    labelKey: 'providerAccounts',
-    tab: 'providers&pview=accounts'
+    keywords: ['models', 'provider', 'routing', 'main model', 'auxiliary', 'anthropic', 'openai'],
+    labelKey: 'providerModels',
+    tab: 'providers&pview=models'
   },
   {
     icon: KeyRound,
-    keywords: ['providers', 'api key', 'keys', 'secrets', 'tokens'],
-    labelKey: 'providerApiKeys',
-    tab: 'providers&pview=keys'
+    keywords: ['providers', 'api key', 'keys', 'secrets', 'tokens', 'credential pool', 'oauth'],
+    labelKey: 'providerCredentials',
+    tab: 'providers&pview=providers'
   },
   { icon: Globe, keywords: ['connection', 'messaging'], labelKey: 'gateway', tab: 'gateway' },
   {
@@ -160,7 +160,7 @@ export function CommandPalette() {
   // the palette is open. react-query handles caching/dedup/staleness.
   const configQuery = useQuery({
     queryKey: ['command-palette', 'config'],
-    queryFn: getHermesConfigRecord,
+    queryFn: getQiQiClawConfigRecord,
     enabled: open
   })
 

@@ -50,7 +50,7 @@ export const zhHant = defineLocale({
       loadingSettings: '正在載入 QiQiClaw 設定',
       loadingSessions: '正在載入最近工作階段',
       startingDesktopConnection: '正在啟動桌面連線',
-      startingHermesDesktop: '正在啟動 QiQiClaw Desktop…'
+      startingQiQiClawDesktop: '正在啟動 QiQiClaw Desktop…'
     },
     errors: {
       backgroundExited: 'QiQiClaw 背景程序已結束。',
@@ -96,7 +96,7 @@ export const zhHant = defineLocale({
     copyDetailFailed: '無法複製通知詳情',
     backendOutOfDateTitle: '後端版本過舊',
     backendOutOfDateMessage: '您的 QiQiClaw 後端早於目前的桌面版本，可能無法正常運作。請更新以保持一致。',
-    updateHermes: '更新 QiQiClaw',
+    updateQiQiClaw: '更新 QiQiClaw',
     updateReadyTitle: '有可用更新',
     updateReadyMessage: count => `有 ${count} 項新變更可用。`,
     seeWhatsNew: '查看新增內容',
@@ -164,8 +164,8 @@ export const zhHant = defineLocale({
     resetFailed: '重設失敗',
     nav: {
       providers: '提供方',
-      providerAccounts: '帳號',
-      providerApiKeys: 'API 金鑰',
+      providerModels: '模型',
+      providerCredentials: '提供商',
       gateway: '閘道',
       apiKeys: '工具與金鑰',
       keysTools: '工具',
@@ -603,15 +603,19 @@ export const zhHant = defineLocale({
       }
     },
     providers: {
-      connectAccount: '連結帳號',
-      haveApiKey: '改用 API 金鑰？',
-      intro: '使用訂閱登入，無需複製 API 金鑰。QiQiClaw 會在應用程式中為您完成瀏覽器登入。',
-      connected: '已連線',
-      collapse: '收合',
-      connectAnother: '連結其他提供方',
-      otherProviders: '其他提供方',
       noProviderKeys: '沒有可用的提供方 API 金鑰。',
-      loading: '正在載入提供方...'
+      loading: '正在載入提供方...',
+      credentialPoolTitle: '憑證池',
+      credentialPoolDesc:
+        'QiQiClaw setup、聊天模型切換、輔助模型與編排層使用的輪換提供商憑證。項目由後端儲存，這裡只顯示脫敏摘要。',
+      credentialPoolLoading: '正在載入憑證池...',
+      credentialPoolEmpty: '尚未設定池化憑證。',
+      credentialPoolRedacted: '已脫敏',
+      provider: '提供商',
+      apiKey: 'API 金鑰',
+      label: '標籤',
+      add: '新增',
+      requests: count => `${count} 次請求`
     },
     sessions: {
       loading: '正在載入已封存工作階段…',
@@ -780,7 +784,7 @@ export const zhHant = defineLocale({
     gatewayStopped: '訊息閘道已停止',
     hermesActiveSessions: (version, count) => `QiQiClaw ${version} · 活躍工作階段 ${count}`,
     restartMessaging: '重新啟動訊息服務',
-    updateHermes: '更新 QiQiClaw',
+    updateQiQiClaw: '更新 QiQiClaw',
     actionRunning: '執行中',
     actionDone: '完成',
     actionFailed: '失敗',

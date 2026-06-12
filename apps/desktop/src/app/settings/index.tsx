@@ -2,10 +2,10 @@ import { IconDownload, IconRefresh, IconUpload } from '@tabler/icons-react'
 import { useRef } from 'react'
 
 import { Tip } from '@/components/ui/tooltip'
-import { getHermesConfigDefaults, getHermesConfigRecord, saveHermesConfig } from '@/hermes'
+import { getQiQiClawConfigDefaults, getQiQiClawConfigRecord, saveQiQiClawConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { Archive, Globe, Info, KeyRound, Settings2, Sparkles, Wrench, Zap } from '@/lib/icons'
+import { Archive, Cpu, Globe, Info, KeyRound, Settings2, Wrench, Zap } from '@/lib/icons'
 import { notifyError } from '@/store/notifications'
 
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -37,9 +37,9 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
 export function SettingsView({ gateway, onClose, onConfigSaved, onMainModelChanged }: SettingsPageProps) {
   const { t } = useI18n()
   const [activeView, setActiveView] = useRouteEnumParam('tab', SETTINGS_VIEWS, 'config:model' as SettingsViewId)
-  // Providers subnav (Accounts vs API keys) lives in its own param so each
+  // Providers subnav (Models vs provider credentials) lives in its own param so each
   // sub-view is deep-linkable and survives a refresh.
-  const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'accounts')
+  const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'models')
   const [keysView, setKeysView] = useRouteEnumParam<KeysView>('kview', KEYS_VIEWS, 'tools')
 
   const openProviderView = (view: ProviderView) => {
@@ -56,7 +56,7 @@ export function SettingsView({ gateway, onClose, onConfigSaved, onMainModelChang
 
   const exportConfig = async () => {
     try {
-      const cfg = await getHermesConfigRecord()
+      const cfg = await getQiQiClawConfigRecord()
       const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -76,7 +76,7 @@ export function SettingsView({ gateway, onClose, onConfigSaved, onMainModelChang
     }
 
     try {
-      await saveHermesConfig(await getHermesConfigDefaults())
+      await saveQiQiClawConfig(await getQiQiClawConfigDefaults())
       triggerHaptic('success')
       onConfigSaved?.()
     } catch (err) {
@@ -111,18 +111,18 @@ export function SettingsView({ gateway, onClose, onConfigSaved, onMainModelChang
           {activeView === 'providers' && (
             <div className="ml-3.5 flex flex-col gap-0.5 pl-1.5">
               <OverlayNavItem
-                active={providerView === 'accounts'}
-                icon={Sparkles}
-                label={t.settings.nav.providerAccounts}
+                active={providerView === 'models'}
+                icon={Cpu}
+                label={t.settings.nav.providerModels}
                 nested
-                onClick={() => openProviderView('accounts')}
+                onClick={() => openProviderView('models')}
               />
               <OverlayNavItem
-                active={providerView === 'keys'}
+                active={providerView === 'providers'}
                 icon={KeyRound}
-                label={t.settings.nav.providerApiKeys}
+                label={t.settings.nav.providerCredentials}
                 nested
-                onClick={() => openProviderView('keys')}
+                onClick={() => openProviderView('providers')}
               />
             </div>
           )}
@@ -220,7 +220,7 @@ export function SettingsView({ gateway, onClose, onConfigSaved, onMainModelChang
               onMainModelChanged={onMainModelChanged}
             />
           ) : activeView === 'providers' ? (
-            <ProvidersSettings onViewChange={setProviderView} view={providerView} />
+            <ProvidersSettings onMainModelChanged={onMainModelChanged} view={providerView} />
           ) : activeView === 'keys' ? (
             <KeysSettings view={keysView} />
           ) : activeView === 'mcp' ? (

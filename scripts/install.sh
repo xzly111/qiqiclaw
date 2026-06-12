@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# Hermes Agent Installer
+# QIQI-Claw Installer
 # ============================================================================
 # Installation script for Linux, macOS, and Android/Termux.
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/xzly111/qiqiclaw/main/scripts/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL ... | bash -s -- --no-venv --skip-setup
@@ -16,7 +16,7 @@
 set -e
 
 # Guard against environment leakage when the installer is launched from another
-# Python-driven tool session (e.g. Hermes terminal tool). A pre-set PYTHONPATH
+# Python-driven tool session (e.g. QiQiClaw terminal tool). A pre-set PYTHONPATH
 # can force pip/entrypoints to import a different checkout than the one being
 # installed, which makes fresh installs appear broken or stale.
 if [ -n "${PYTHONPATH:-}" ]; then
@@ -43,9 +43,13 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-REPO_URL_SSH="git@github.com:NousResearch/hermes-agent.git"
-REPO_URL_HTTPS="https://github.com/NousResearch/hermes-agent.git"
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+INSTALL_SOURCE="${QIQICLAW_INSTALL_SOURCE:-${HERMES_INSTALL_SOURCE:-github}}"
+REPO_URL_SSH="git@github.com:xzly111/qiqiclaw.git"
+REPO_URL_HTTPS="https://github.com/xzly111/qiqiclaw.git"
+RAW_BASE_URL="https://raw.githubusercontent.com/xzly111/qiqiclaw"
+HERMES_HOME="${QIQICLAW_HOME:-${HERMES_HOME:-$HOME/.qiqiclaw}}"
+QIQICLAW_HOME="$HERMES_HOME"
+export HERMES_HOME QIQICLAW_HOME
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
 # explicit directory — if so we never override it.
@@ -58,10 +62,12 @@ else
 fi
 PYTHON_VERSION="3.11"
 NODE_VERSION="22"
+NODE_DIST_BASE_URL="${QIQICLAW_NODE_DIST_BASE_URL:-https://nodejs.org/dist}"
+UV_INSTALLER_URL="${QIQICLAW_UV_INSTALLER_URL:-https://astral.sh/uv/install.sh}"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
-#   code at /usr/local/lib/hermes-agent, command at /usr/local/bin/hermes,
-#   data still at /root/.hermes (HERMES_HOME).  Matches Claude Code / Codex CLI
+#   code at /usr/local/lib/qiqiclaw, command at /usr/local/bin/hermes,
+#   data still at /root/.qiqiclaw (HERMES_HOME/QIQICLAW_HOME).  Matches Claude Code / Codex CLI
 #   and keeps Docker bind-mounted /root/ volumes lean.
 ROOT_FHS_LAYOUT=false
 DETECTED_BROWSER_EXECUTABLE=""
@@ -80,6 +86,40 @@ STAGE_NAME=""
 JSON_OUTPUT=false
 NON_INTERACTIVE=false
 INCLUDE_DESKTOP=false
+
+configure_install_source() {
+    case "${INSTALL_SOURCE,,}" in
+        github|"")
+            INSTALL_SOURCE="github"
+            REPO_URL_SSH="git@github.com:xzly111/qiqiclaw.git"
+            REPO_URL_HTTPS="https://github.com/xzly111/qiqiclaw.git"
+            RAW_BASE_URL="https://raw.githubusercontent.com/xzly111/qiqiclaw"
+            ;;
+        gitee|碼雲|码云|cn|china|domestic)
+            INSTALL_SOURCE="gitee"
+            REPO_URL_SSH="git@gitee.com:szd20020329/qiqiclaw.git"
+            REPO_URL_HTTPS="https://gitee.com/szd20020329/qiqiclaw.git"
+            RAW_BASE_URL="https://gitee.com/szd20020329/qiqiclaw/raw"
+            export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+            export UV_INDEX_URL="${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+            export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+            export npm_config_registry="${npm_config_registry:-https://registry.npmmirror.com}"
+            export PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright}"
+            export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
+            export ELECTRON_BUILDER_BINARIES_MIRROR="${ELECTRON_BUILDER_BINARIES_MIRROR:-https://npmmirror.com/mirrors/electron-builder-binaries/}"
+            if [ -z "${QIQICLAW_NODE_DIST_BASE_URL:-}" ]; then
+                NODE_DIST_BASE_URL="https://registry.npmmirror.com/-/binary/node"
+            fi
+            ;;
+        *)
+            echo "Unsupported install source: $INSTALL_SOURCE" >&2
+            echo "Use --source github or --source gitee." >&2
+            exit 1
+            ;;
+    esac
+    export QIQICLAW_INSTALL_SOURCE="$INSTALL_SOURCE"
+    export HERMES_INSTALL_SOURCE="$INSTALL_SOURCE"
+}
 
 # Detect non-interactive mode (e.g. curl | bash)
 # When stdin is not a terminal, read -p will fail with EOF,
@@ -137,6 +177,10 @@ while [[ $# -gt 0 ]]; do
             INCLUDE_DESKTOP=true
             shift
             ;;
+        --source|-Source)
+            INSTALL_SOURCE="$2"
+            shift 2
+            ;;
         --dir)
             INSTALL_DIR="$2"
             INSTALL_DIR_EXPLICIT=true
@@ -144,6 +188,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         --hermes-home)
             HERMES_HOME="$2"
+            QIQICLAW_HOME="$HERMES_HOME"
+            export HERMES_HOME QIQICLAW_HOME
             shift 2
             ;;
         --ensure)
@@ -155,7 +201,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Hermes Agent Installer"
+            echo "QIQI-Claw Installer"
             echo ""
             echo "Usage: install.sh [OPTIONS]"
             echo ""
@@ -172,21 +218,22 @@ while [[ $# -gt 0 ]]; do
             echo "  --stage NAME   Run one desktop bootstrap stage"
             echo "  --json         Print a JSON result frame for --stage"
             echo "  --non-interactive  Skip stages that require user input"
-            echo "  --include-desktop  Also build the desktop app (apps/desktop -> Hermes.app)"
+            echo "  --include-desktop  Also build the desktop app (apps/desktop -> QiQiClaw Desktop.app)"
+            echo "  --source NAME  Download source: github (global) or gitee (China mirrors)"
             echo "  --dir PATH     Installation directory"
-            echo "                   default (non-root):  ~/.hermes/hermes-agent"
-            echo "                   default (root, Linux): /usr/local/lib/hermes-agent"
-            echo "  --hermes-home PATH  Data directory (default: ~/.hermes, or \$HERMES_HOME)"
+            echo "                   default (non-root):  ~/.qiqiclaw/qiqiclaw"
+            echo "                   default (root, Linux): /usr/local/lib/qiqiclaw"
+            echo "  --hermes-home PATH  Data directory (default: ~/.qiqiclaw, or \$QIQICLAW_HOME/\$HERMES_HOME)"
             echo "  -h, --help     Show this help"
             echo ""
             echo "Notes:"
-            echo "  When running as root on Linux, Hermes installs the code under"
-            echo "  /usr/local/lib/hermes-agent and links the command into"
+            echo "  When running as root on Linux, QiQiClaw installs the code under"
+            echo "  /usr/local/lib/qiqiclaw and links the command into"
             echo "  /usr/local/bin/hermes (FHS layout — matches Claude Code / Codex CLI)."
             echo "  Data, config, sessions, and logs still live in \$HERMES_HOME"
-            echo "  (default /root/.hermes).  This keeps Docker bind-mounted volumes"
+            echo "  (default /root/.qiqiclaw).  This keeps Docker bind-mounted volumes"
             echo "  small and ensures the command is on PATH for all shells."
-            echo "  Existing installs at \$HERMES_HOME/hermes-agent are preserved in-place."
+            echo "  Existing installs at \$HERMES_HOME/qiqiclaw are preserved in-place."
             echo "  --ensure DEPS  Install only specified deps (comma-separated)"
             echo "                   Supported: node, browser, ripgrep, ffmpeg"
             echo "                   Does NOT clone repo or create venv"
@@ -202,6 +249,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+configure_install_source
+
 # ============================================================================
 # Helper functions
 # ============================================================================
@@ -210,7 +259,7 @@ print_banner() {
     echo ""
     echo -e "${MAGENTA}${BOLD}"
     echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│             ⚕ Hermes Agent Installer                    │"
+    echo "│             ⚕ QIQI-Claw Installer                    │"
     echo "├─────────────────────────────────────────────────────────┤"
     echo "│  An open source AI agent by Nous Research.              │"
     echo "└─────────────────────────────────────────────────────────┘"
@@ -260,7 +309,7 @@ restore_dirty_lockfiles() {
 
 emit_manifest() {
     # Stage-Desktop is included only with --include-desktop, mirroring
-    # install.ps1: the signed bootstrap installer (Hermes-Setup) passes it so
+    # install.ps1: the signed bootstrap installer (QiQiClaw-Setup) passes it so
     # a GUI install ends up with a launchable app; the Electron app's own
     # first-launch bootstrap and the CLI one-liner omit it (building the
     # desktop from inside the already-running app would clobber it).
@@ -268,7 +317,7 @@ emit_manifest() {
     if [ "$INCLUDE_DESKTOP" = true ]; then
         desktop_stage='{"name":"desktop","title":"Build desktop app","category":"runtime","needs_user_input":false},'
     fi
-    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Hermes Agent","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
+    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download QIQI-Claw","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"platform-sdks","title":"Install messaging platform SDKs","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
     printf '\n'
 }
 
@@ -340,14 +389,14 @@ is_termux() {
 # symlink goes.  Called after detect_os so $OS/$DISTRO are known.
 #
 # Defaults:
-#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/hermes-agent
+#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/qiqiclaw
 #                             command link in $HOME/.local/bin
-#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/hermes-agent
+#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/qiqiclaw
 #                             command link in $PREFIX/bin (already on PATH)
-#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/hermes-agent
+#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/qiqiclaw
 #                             command link in /usr/local/bin
 #                             (unless a legacy install already exists at
-#                              $HERMES_HOME/hermes-agent — then preserve it)
+#                              $HERMES_HOME/qiqiclaw — then preserve it)
 #
 # Always no-op when the user set --dir or $HERMES_INSTALL_DIR.
 resolve_install_layout() {
@@ -358,21 +407,27 @@ resolve_install_layout() {
 
     # Termux: package manager manages /data/data/..., keep code in HERMES_HOME.
     if is_termux; then
-        INSTALL_DIR="$HERMES_HOME/hermes-agent"
+        INSTALL_DIR="$HERMES_HOME/qiqiclaw"
         return 0
     fi
 
-    # Root on Linux: prefer FHS layout unless a legacy install already exists.
+    # Root on Linux: prefer FHS layout unless an existing install already exists.
     # macOS root installs keep the legacy layout because /usr/local/ on macOS
     # is Homebrew territory and we don't want to fight that.
     if [ "$OS" = "linux" ] && [ "$(id -u)" -eq 0 ]; then
-        if [ -d "$HERMES_HOME/hermes-agent/.git" ]; then
-            INSTALL_DIR="$HERMES_HOME/hermes-agent"
-            log_info "Existing install detected at $INSTALL_DIR — keeping legacy layout"
-            log_info "  (new root installs use /usr/local/lib/hermes-agent)"
+        if [ -d "$HERMES_HOME/qiqiclaw/.git" ]; then
+            INSTALL_DIR="$HERMES_HOME/qiqiclaw"
+            log_info "Existing install detected at $INSTALL_DIR — keeping user-scoped layout"
+            log_info "  (new root installs use /usr/local/lib/qiqiclaw)"
             return 0
         fi
-        INSTALL_DIR="/usr/local/lib/hermes-agent"
+        if [ -d "$HERMES_HOME/hermes-agent/.git" ]; then
+            INSTALL_DIR="$HERMES_HOME/hermes-agent"
+            log_info "Existing legacy install detected at $INSTALL_DIR — keeping it"
+            log_info "  (new root installs use /usr/local/lib/qiqiclaw)"
+            return 0
+        fi
+        INSTALL_DIR="/usr/local/lib/qiqiclaw"
         ROOT_FHS_LAYOUT=true
         # Place uv-managed Python under /usr/local/share so the venv interpreter
         # is world-readable.  Default uv paths land in /root/.local/share/uv,
@@ -389,8 +444,8 @@ resolve_install_layout() {
         return 0
     fi
 
-    # Default: non-root, non-Termux → legacy user-scoped layout.
-    INSTALL_DIR="$HERMES_HOME/hermes-agent"
+    # Default: non-root, non-Termux -> user-scoped layout.
+    INSTALL_DIR="$HERMES_HOME/qiqiclaw"
 }
 
 get_command_link_dir() {
@@ -451,7 +506,7 @@ detect_os() {
             OS="windows"
             DISTRO="windows"
             log_error "Windows detected. Please use the PowerShell installer:"
-            log_info "  iex (irm https://hermes-agent.nousresearch.com/install.ps1)"
+            log_info "  iex (irm ${RAW_BASE_URL}/main/scripts/install.ps1)"
             exit 1
             ;;
         *)
@@ -475,7 +530,7 @@ install_uv() {
         return 0
     fi
 
-    # Hermes owns its own uv at $HERMES_HOME/bin/uv.  Always install there —
+    # QiQiClaw owns its own uv at $HERMES_HOME/bin/uv.  Always install there —
     # no PATH probing, no conda guards, no multi-location resolution chains.
     # The runtime update path (hermes_cli/managed_uv.py) looks in the same
     # place, so install.sh and `hermes update` stay in sync.
@@ -491,14 +546,21 @@ install_uv() {
     log_info "Installing managed uv into $HERMES_HOME/bin ..."
     mkdir -p "$HERMES_HOME/bin"
 
+    if [ "$INSTALL_SOURCE" = "gitee" ] && install_uv_from_python_mirror "$_managed_uv"; then
+        UV_CMD="$_managed_uv"
+        UV_VERSION=$($UV_CMD --version 2>/dev/null)
+        log_success "Managed uv installed from domestic PyPI mirror ($UV_VERSION)"
+        return 0
+    fi
+
     # Two-stage: download the installer, then run it.  Piping
     # `curl | sh` masks curl failures (sh exits 0 on empty stdin)
     # and conflates network errors with installer errors.
     local _uv_install_log _uv_installer
     _uv_install_log="$(mktemp 2>/dev/null || echo "/tmp/hermes-uv-install.$$.log")"
     _uv_installer="$(mktemp 2>/dev/null || echo "/tmp/hermes-uv-installer.$$.sh")"
-    if ! curl -LsSf https://astral.sh/uv/install.sh -o "$_uv_installer" 2>"$_uv_install_log"; then
-        log_error "Failed to download uv installer from https://astral.sh/uv/install.sh"
+    if ! curl -LsSf "$UV_INSTALLER_URL" -o "$_uv_installer" 2>"$_uv_install_log"; then
+        log_error "Failed to download uv installer from $UV_INSTALLER_URL"
         log_info "curl output:"
         sed 's/^/    /' "$_uv_install_log" >&2
         log_info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
@@ -529,6 +591,58 @@ install_uv() {
         rm -f "$_uv_install_log" "$_uv_installer"
         exit 1
     fi
+}
+
+install_uv_from_python_mirror() {
+    local _managed_uv="$1"
+    local _python=""
+    local _bootstrap_dir="$HERMES_HOME/uv-bootstrap"
+    local _pip_index="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+
+    if command -v python3 >/dev/null 2>&1; then
+        _python="$(command -v python3)"
+    elif command -v python >/dev/null 2>&1; then
+        _python="$(command -v python)"
+    else
+        log_warn "Gitee source: Python not found for domestic uv bootstrap; falling back to uv official installer"
+        return 1
+    fi
+
+    if ! "$_python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null; then
+        log_warn "Gitee source: system Python is too old for uv bootstrap; falling back to uv official installer"
+        return 1
+    fi
+
+    rm -rf "$_bootstrap_dir"
+    if "$_python" -m venv "$_bootstrap_dir" >/dev/null 2>&1; then
+        if ! "$_bootstrap_dir/bin/python" -m pip install -i "$_pip_index" --upgrade pip uv >/dev/null 2>&1; then
+            log_warn "Gitee source: uv install from $_pip_index failed; falling back to uv official installer"
+            rm -rf "$_bootstrap_dir"
+            return 1
+        fi
+        if [ -x "$_bootstrap_dir/bin/uv" ]; then
+            cp "$_bootstrap_dir/bin/uv" "$_managed_uv"
+            chmod +x "$_managed_uv"
+            rm -rf "$_bootstrap_dir"
+            return 0
+        fi
+    fi
+
+    if "$_python" -m pip install --user -i "$_pip_index" --upgrade uv >/dev/null 2>&1; then
+        local _user_base _user_uv
+        _user_base="$("$_python" -m site --user-base 2>/dev/null || true)"
+        _user_uv="$_user_base/bin/uv"
+        if [ -x "$_user_uv" ]; then
+            cp "$_user_uv" "$_managed_uv"
+            chmod +x "$_managed_uv"
+            rm -rf "$_bootstrap_dir"
+            return 0
+        fi
+    fi
+
+    log_warn "Gitee source: domestic uv bootstrap did not produce an executable; falling back to uv official installer"
+    rm -rf "$_bootstrap_dir"
+    return 1
 }
 
 check_python() {
@@ -706,7 +820,7 @@ check_git() {
 # `^20.19 || >=22.12` — older Node lacks `node:util.styleText`, so `vite build`
 # crashes with a SyntaxError that surfaces only as the opaque "Build desktop
 # app … exit code 1" install failure. Returns 0 when the given `node --version`
-# string clears that floor; anything below it is replaced with the Hermes-
+# string clears that floor; anything below it is replaced with the QiQiClaw-
 # managed Node $NODE_VERSION LTS.
 node_satisfies_build() {
     local ver="${1#v}"
@@ -728,16 +842,16 @@ check_node() {
         return 0
     fi
 
-    # Prefer a Hermes-managed Node from a previous run over a too-old system one.
+    # Prefer a QiQiClaw-managed Node from a previous run over a too-old system one.
     if [ -x "$HERMES_HOME/node/bin/node" ] && node_satisfies_build "$("$HERMES_HOME/node/bin/node" --version)"; then
         export PATH="$HERMES_HOME/node/bin:$PATH"
-        log_success "Node.js $("$HERMES_HOME/node/bin/node" --version) found (Hermes-managed)"
+        log_success "Node.js $("$HERMES_HOME/node/bin/node" --version) found (QiQiClaw-managed)"
         HAS_NODE=true
         return 0
     fi
 
     if command -v node &> /dev/null; then
-        log_warn "Node.js $(node --version) is too old for the desktop build (need ^20.19 or >=22.12) — installing Hermes-managed Node $NODE_VERSION LTS..."
+        log_warn "Node.js $(node --version) is too old for the desktop build (need ^20.19 or >=22.12) — installing QiQiClaw-managed Node $NODE_VERSION LTS..."
     elif [ "$DISTRO" = "termux" ]; then
         log_info "Node.js not found — installing Node.js via pkg..."
     else
@@ -787,7 +901,7 @@ install_node() {
     esac
 
     # Resolve the latest v22.x.x tarball name from the index page
-    local index_url="https://nodejs.org/dist/latest-v${NODE_VERSION}.x/"
+    local index_url="${NODE_DIST_BASE_URL%/}/latest-v${NODE_VERSION}.x/"
     local tarball_name
     tarball_name=$(curl -fsSL "$index_url" \
         | grep -oE "node-v${NODE_VERSION}\.[0-9]+\.[0-9]+-${node_os}-${node_arch}\.tar\.xz" \
@@ -819,7 +933,7 @@ install_node() {
         return 0
     fi
 
-    log_info "Extracting to ~/.hermes/node/..."
+    log_info "Extracting to $HERMES_HOME/node/..."
     if [[ "$tarball_name" == *.tar.xz ]]; then
         tar xf "$tmp_dir/$tarball_name" -C "$tmp_dir"
     else
@@ -836,7 +950,7 @@ install_node() {
         return 0
     fi
 
-    # Place into ~/.hermes/node/ and symlink binaries into the same bin dir
+    # Place into $HERMES_HOME/node/ and symlink binaries into the same bin dir
     # the hermes command uses (get_command_link_dir): /usr/local/bin for root
     # FHS installs, $PREFIX/bin on Termux, ~/.local/bin otherwise.
     rm -rf "$HERMES_HOME/node"
@@ -855,7 +969,7 @@ install_node() {
 
     local installed_ver
     installed_ver=$("$HERMES_HOME/node/bin/node" --version 2>/dev/null)
-    log_success "Node.js $installed_ver installed to ~/.hermes/node/"
+    log_success "Node.js $installed_ver installed to $HERMES_HOME/node/"
     HAS_NODE=true
 }
 
@@ -865,6 +979,9 @@ check_network_prerequisites() {
     local url
     local failed=false
     local checks=("https://pypi.org/simple/" "https://duckduckgo.com/")
+    if [ "$INSTALL_SOURCE" = "gitee" ]; then
+        checks=("https://pypi.tuna.tsinghua.edu.cn/simple/" "https://registry.npmmirror.com/")
+    fi
 
     if ! command -v curl >/dev/null 2>&1; then
         log_warn "curl not found; skipping connectivity probes"
@@ -889,7 +1006,7 @@ check_network_prerequisites() {
         log_info "If mirrors are stale: termux-change-repo"
         log_info "Then test: curl -I https://pypi.org/simple/ && curl -I https://duckduckgo.com/"
     else
-        log_warn "Network checks failed. Hermes install may complete, but web search and dependency downloads can fail."
+        log_warn "Network checks failed. QiQiClaw install may complete, but web search and dependency downloads can fail."
         log_info "Verify internet/DNS and retry if pip install fails."
     fi
 }
@@ -1013,7 +1130,7 @@ install_system_packages() {
             if [ "$IS_INTERACTIVE" = true ]; then
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Hermes Agent itself does not require or retain root access."
+                log_info "QIQI-Claw itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}? (requires sudo)" "no"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
                         [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
@@ -1029,7 +1146,7 @@ install_system_packages() {
                 # but opening fails with ENXIO. See #16746.
                 echo ""
                 log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "Hermes Agent itself does not require or retain root access."
+                log_info "QIQI-Claw itself does not require or retain root access."
                 if prompt_yes_no "Install ${description}?" "yes"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd < /dev/tty; then
                         [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
@@ -1129,7 +1246,7 @@ clone_repo() {
                     if git stash apply "$autostash_ref"; then
                         git stash drop "$autostash_ref" >/dev/null
                         log_warn "Local changes were restored on top of the updated codebase."
-                        log_warn "Review git diff / git status if Hermes behaves unexpectedly."
+                        log_warn "Review git diff / git status if QiQiClaw behaves unexpectedly."
                     else
                         log_error "Update succeeded, but restoring local changes failed. Your changes are still preserved in git stash."
                         log_info "Resolve manually with: git stash apply $autostash_ref"
@@ -1313,7 +1430,7 @@ install_deps() {
                     log_success "Build tools installed"
                 else
                     log_info "sudo is needed ONLY to install build tools (build-essential, python3-dev, libffi-dev) via apt."
-                    log_info "Hermes Agent itself does not require or retain root access."
+                    log_info "QIQI-Claw itself does not require or retain root access."
                     if prompt_yes_no "Install build tools?" "yes"; then
                         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq build-essential python3-dev libffi-dev >/dev/null 2>&1 || true
                         log_success "Build tools installed"
@@ -1404,7 +1521,7 @@ try:
     specs = data["project"]["optional-dependencies"]["all"]
     extras = []
     for s in specs:
-        m = re.search(r"hermes-agent\[([\w-]+)\]", s)
+        m = re.search(r"(?:hermes-agent|qiqiclaw)\[([\w-]+)\]", s)
         if m:
             extras.append(m.group(1))
     print(",".join(extras))
@@ -1477,15 +1594,20 @@ PY
 }
 
 setup_path() {
-    log_info "Setting up hermes command..."
+    log_info "Setting up qiqiclaw/hermes commands..."
 
     if [ "$USE_VENV" = true ]; then
         HERMES_BIN="$INSTALL_DIR/venv/bin/hermes"
+        QIQICLAW_BIN="$INSTALL_DIR/venv/bin/qiqiclaw"
     else
         HERMES_BIN="$(which hermes 2>/dev/null || echo "")"
+        QIQICLAW_BIN="$(which qiqiclaw 2>/dev/null || echo "")"
         if [ -z "$HERMES_BIN" ]; then
             log_warn "hermes not found on PATH after install"
             return 0
+        fi
+        if [ -z "$QIQICLAW_BIN" ]; then
+            QIQICLAW_BIN="$HERMES_BIN"
         fi
     fi
 
@@ -1500,13 +1622,18 @@ setup_path() {
         fi
         return 0
     fi
+    if [ ! -x "$QIQICLAW_BIN" ]; then
+        log_warn "qiqiclaw entry point not found at $QIQICLAW_BIN; using hermes compatibility entry point"
+        QIQICLAW_BIN="$HERMES_BIN"
+    fi
 
     local command_link_dir
     local command_link_display_dir
     command_link_dir="$(get_command_link_dir)"
     command_link_display_dir="$(get_command_link_display_dir)"
 
-    # Create a user-facing shim for the hermes command.
+    # Create user-facing shims for the canonical qiqiclaw command and the
+    # legacy hermes compatibility command.
     # We intentionally clear PYTHONPATH/PYTHONHOME here so inherited env vars
     # can't make this launcher import modules from another checkout.
     mkdir -p "$command_link_dir"
@@ -1521,12 +1648,21 @@ unset PYTHONHOME
 exec "$HERMES_BIN" "\$@"
 EOF
     chmod +x "$command_link_dir/hermes"
+    rm -f "$command_link_dir/qiqiclaw"
+    cat > "$command_link_dir/qiqiclaw" <<EOF
+#!/usr/bin/env bash
+unset PYTHONPATH
+unset PYTHONHOME
+exec "$QIQICLAW_BIN" "\$@"
+EOF
+    chmod +x "$command_link_dir/qiqiclaw"
+    log_success "Installed qiqiclaw launcher → $command_link_display_dir/qiqiclaw"
     log_success "Installed hermes launcher → $command_link_display_dir/hermes"
 
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
         log_info "$command_link_display_dir is the native Termux command path"
-        log_success "hermes command ready"
+        log_success "qiqiclaw/hermes commands ready"
         return 0
     fi
 
@@ -1541,16 +1677,16 @@ EOF
         # Probe a fresh non-login interactive bash the way the user will use it.
         # `bash -i -c` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
         # which is the exact scenario where RHEL root loses /usr/local/bin.
-        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v hermes' \
+        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v qiqiclaw && command -v hermes' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
-            log_success "hermes command ready"
+            log_success "qiqiclaw/hermes commands ready"
             return 0
         fi
 
-        log_info "hermes not on PATH in non-login shells (common on RHEL-family)"
+        log_info "qiqiclaw/hermes not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
-        PATH_COMMENT='# Hermes Agent — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
+        PATH_COMMENT='# QIQI-Claw — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
         for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
             [ -f "$SHELL_CONFIG" ] || continue
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null \
@@ -1561,7 +1697,7 @@ EOF
                 log_success "Added /usr/local/bin to PATH in $SHELL_CONFIG"
             fi
         done
-        log_success "hermes command ready"
+        log_success "qiqiclaw/hermes commands ready"
         return 0
     fi
 
@@ -1607,7 +1743,7 @@ EOF
         for SHELL_CONFIG in "${SHELL_CONFIGS[@]}"; do
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null | grep -qE 'PATH=.*\.local/bin'; then
                 echo "" >> "$SHELL_CONFIG"
-                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
+                echo "# QIQI-Claw — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
                 echo "$PATH_LINE" >> "$SHELL_CONFIG"
                 log_success "Added ~/.local/bin to PATH in $SHELL_CONFIG"
             fi
@@ -1617,7 +1753,7 @@ EOF
         if [ "$IS_FISH" = "true" ]; then
             if ! grep -q 'fish_add_path.*\.local/bin' "$FISH_CONFIG" 2>/dev/null; then
                 echo "" >> "$FISH_CONFIG"
-                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
+                echo "# QIQI-Claw — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
                 echo 'fish_add_path "$HOME/.local/bin"' >> "$FISH_CONFIG"
                 log_success "Added ~/.local/bin to PATH in $FISH_CONFIG"
             fi
@@ -1634,26 +1770,26 @@ EOF
     # Export for current session so hermes works immediately
     export PATH="$command_link_dir:$PATH"
 
-    log_success "hermes command ready"
+    log_success "qiqiclaw/hermes commands ready"
 }
 
 copy_config_templates() {
     log_info "Setting up configuration files..."
 
-    # Create ~/.hermes directory structure (config at top level, code in subdir)
+    # Create QiQiClaw home directory structure (config at top level, code in subdir)
     mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}
 
-    # Create .env at ~/.hermes/.env (top level, easy to find)
+    # Create .env at $HERMES_HOME/.env (top level, easy to find)
     if [ ! -f "$HERMES_HOME/.env" ]; then
         if [ -f "$INSTALL_DIR/.env.example" ]; then
             cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env from template"
+            log_success "Created $HERMES_HOME/.env from template"
         else
             touch "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env"
+            log_success "Created $HERMES_HOME/.env"
         fi
     else
-        log_info "~/.hermes/.env already exists, keeping it"
+        log_info "$HERMES_HOME/.env already exists, keeping it"
     fi
     # Restrict .env permissions — this file holds API keys and tokens.
     # 0600 ensures only the file owner can read/write, matching standard
@@ -1661,25 +1797,25 @@ copy_config_templates() {
     chmod 600 "$HERMES_HOME/.env"
     configure_browser_env_from_system_browser
 
-    # Create config.yaml at ~/.hermes/config.yaml (top level, easy to find)
+    # Create config.yaml at $HERMES_HOME/config.yaml (top level, easy to find)
     if [ ! -f "$HERMES_HOME/config.yaml" ]; then
         if [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
             cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
-            log_success "Created ~/.hermes/config.yaml from template"
+            log_success "Created $HERMES_HOME/config.yaml from template"
         fi
     else
-        log_info "~/.hermes/config.yaml already exists, keeping it"
+        log_info "$HERMES_HOME/config.yaml already exists, keeping it"
     fi
 
     # Create SOUL.md if it doesn't exist (global persona file)
     if [ ! -f "$HERMES_HOME/SOUL.md" ]; then
         cat > "$HERMES_HOME/SOUL.md" << 'SOUL_EOF'
-# Hermes Agent Persona
+# QIQI-Claw Persona
 
 <!--
 This file defines the agent's personality and tone.
 The agent will embody whatever you write here.
-Edit this to customize how Hermes communicates with you.
+Edit this to customize how QiQiClaw communicates with you.
 
 Examples:
   - "You are a warm, playful assistant who uses kaomoji occasionally."
@@ -1690,12 +1826,12 @@ This file is loaded fresh each message -- no restart needed.
 Delete the contents (or this file) to use the default personality.
 -->
 SOUL_EOF
-        log_success "Created ~/.hermes/SOUL.md (edit to customize personality)"
+        log_success "Created $HERMES_HOME/SOUL.md (edit to customize personality)"
     fi
 
-    log_success "Configuration directory ready: ~/.hermes/"
+    log_success "Configuration directory ready: $HERMES_HOME/"
 
-    # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
+    # Seed bundled skills into $HERMES_HOME/skills/ (manifest-based, one-time per skill)
     if [ "$NO_SKILLS" = true ]; then
         # Blank-slate install: write the opt-out marker and skip seeding.
         # skills_sync.py and `hermes update` both honor this marker, so the
@@ -1707,14 +1843,14 @@ SOUL_EOF
         log_info "Skipping bundled skills (--no-skills). Wrote $HERMES_HOME/.no-bundled-skills"
         log_info "  Future 'hermes update' runs will not inject bundled skills. Delete the marker to opt back in."
     else
-        log_info "Syncing bundled skills to ~/.hermes/skills/ ..."
+        log_info "Syncing bundled skills to $HERMES_HOME/skills/ ..."
         if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
-            log_success "Skills synced to ~/.hermes/skills/"
+            log_success "Skills synced to $HERMES_HOME/skills/"
         else
             # Fallback: simple directory copy if Python sync fails
             if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$HERMES_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
                 cp -r "$INSTALL_DIR/skills/"* "$HERMES_HOME/skills/" 2>/dev/null || true
-                log_success "Skills copied to ~/.hermes/skills/"
+                log_success "Skills copied to $HERMES_HOME/skills/"
             fi
         fi
     fi
@@ -1792,7 +1928,7 @@ configure_browser_env_from_system_browser() {
 
     {
         echo ""
-        echo "# Hermes Agent browser tools — use the system Chrome/Chromium binary."
+        echo "# QIQI-Claw browser tools — use the system Chrome/Chromium binary."
         echo "AGENT_BROWSER_EXECUTABLE_PATH=$browser_path"
     } >> "$env_file"
     log_success "Configured browser tools to use $browser_path"
@@ -1834,7 +1970,7 @@ install_node_deps() {
         DETECTED_BROWSER_EXECUTABLE="$(find_system_browser 2>/dev/null || true)"
         if [ -n "$DETECTED_BROWSER_EXECUTABLE" ]; then
             log_success "Found system Chrome/Chromium at $DETECTED_BROWSER_EXECUTABLE"
-            log_info "Skipping Playwright browser download; Hermes will use the system browser."
+            log_info "Skipping Playwright browser download; QiQiClaw will use the system browser."
         else
             case "$DISTRO" in
                 ubuntu|debian|raspbian|pop|linuxmint|elementary|zorin|kali|parrot)
@@ -1924,6 +2060,70 @@ install_node_deps() {
     restore_dirty_lockfiles "$INSTALL_DIR"
 }
 
+install_platform_sdks() {
+    if [ "$USE_VENV" != true ]; then
+        log_info "Skipping messaging platform SDK verification (--no-venv)"
+        return 0
+    fi
+
+    local python_bin="$INSTALL_DIR/venv/bin/python"
+    if [ ! -x "$python_bin" ]; then
+        log_warn "Skipping messaging platform SDK verification: $python_bin not found"
+        return 1
+    fi
+
+    log_info "Verifying messaging platform SDKs..."
+
+    local imports=(
+        "Telegram:telegram:python-telegram-bot[webhooks]==22.6"
+        "Discord:discord:discord.py[voice]==2.7.1"
+        "Async HTTP runtime:aiohttp:aiohttp==3.13.3"
+        "Brotli compression runtime:brotlicffi:brotlicffi==1.2.0.1"
+        "Slack SDK:slack_sdk:slack-sdk==3.40.1"
+        "Slack Bolt:slack_bolt:slack-bolt==1.27.0"
+        "DingTalk stream:dingtalk_stream:dingtalk-stream==0.24.3"
+        "DingTalk OpenAPI:alibabacloud_dingtalk:alibabacloud-dingtalk==2.2.42"
+        "Feishu/Lark:lark_oapi:lark-oapi==1.5.3"
+        "WeCom callback XML safety:defusedxml:defusedxml==0.7.1"
+        "QR code pairing:qrcode:qrcode==7.4.2"
+    )
+
+    local missing=()
+    local item label module spec
+    for item in "${imports[@]}"; do
+        IFS=':' read -r label module spec <<< "$item"
+        if "$python_bin" -c "import ${module}" >/dev/null 2>&1; then
+            log_success "$label OK"
+        else
+            log_warn "$label NOT importable ($module)"
+            missing+=("$item")
+        fi
+    done
+
+    if [ "${#missing[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    if ! "$python_bin" -m pip --version >/dev/null 2>&1; then
+        log_info "Bootstrapping pip into venv..."
+        "$python_bin" -m ensurepip --upgrade >/dev/null 2>&1 || {
+            log_error "ensurepip failed; cannot install missing messaging SDKs"
+            return 1
+        }
+    fi
+
+    for item in "${missing[@]}"; do
+        IFS=':' read -r label module spec <<< "$item"
+        log_info "Installing $label: $spec"
+        if "$python_bin" -m pip install "$spec"; then
+            log_success "Installed $label"
+        else
+            log_error "Failed to install required messaging SDK: $label"
+            return 1
+        fi
+    done
+}
+
 run_setup_wizard() {
     if [ "$RUN_SETUP" = false ]; then
         log_info "Skipping setup wizard (--skip-setup)"
@@ -1939,7 +2139,7 @@ run_setup_wizard() {
     # but opening fails with ENXIO, so the wizard would proceed and
     # then crash on `< /dev/tty` below.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Setup wizard skipped (no terminal available). Run 'hermes setup' after install."
+        log_info "Setup wizard skipped (no terminal available). Run 'qiqiclaw setup' after install."
         return 0
     fi
 
@@ -1949,12 +2149,12 @@ run_setup_wizard() {
 
     cd "$INSTALL_DIR"
 
-    # Run hermes setup using the venv Python directly (no activation needed).
+    # Run qiqiclaw setup using the venv Python directly (no activation needed).
     # Redirect stdin from /dev/tty so interactive prompts work when piped from curl.
     if [ "$USE_VENV" = true ]; then
-        "$INSTALL_DIR/venv/bin/python" -m hermes_cli.main setup < /dev/tty
+        "$INSTALL_DIR/venv/bin/python" -m qiqiclaw_cli.main setup < /dev/tty
     else
-        python -m hermes_cli.main setup < /dev/tty
+        python -m qiqiclaw_cli.main setup < /dev/tty
     fi
 }
 
@@ -1980,7 +2180,7 @@ maybe_start_gateway() {
 
     echo ""
     log_info "Messaging platform token detected!"
-    log_info "The gateway needs to be running for Hermes to send/receive messages."
+    log_info "The gateway needs to be running for QiQiClaw to send/receive messages."
 
     # If WhatsApp is enabled and no session exists yet, run foreground first for QR scan
     WHATSAPP_VAL=$(grep "^WHATSAPP_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
@@ -2043,7 +2243,7 @@ maybe_start_gateway() {
             fi
             nohup $HERMES_CMD gateway > "$HERMES_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
-            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.hermes/logs/gateway.log"
+            log_success "Gateway started (PID $GATEWAY_PID). Logs: $HERMES_HOME/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
             log_info "To restart later: hermes gateway"
             if [ "$DISTRO" = "termux" ]; then
@@ -2077,12 +2277,13 @@ print_success() {
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}hermes${NC}              Start chatting"
-    echo -e "   ${GREEN}hermes setup${NC}        Configure API keys & settings"
-    echo -e "   ${GREEN}hermes config${NC}       View/edit configuration"
-    echo -e "   ${GREEN}hermes config edit${NC}  Open config in editor"
-    echo -e "   ${GREEN}hermes gateway install${NC} Install gateway service (messaging + cron)"
-    echo -e "   ${GREEN}hermes update${NC}       Update to latest version"
+    echo -e "   ${GREEN}qiqiclaw${NC}              Start chatting"
+    echo -e "   ${GREEN}qiqiclaw setup${NC}        Configure API keys & settings"
+    echo -e "   ${GREEN}qiqiclaw config${NC}       View/edit configuration"
+    echo -e "   ${GREEN}qiqiclaw config edit${NC}  Open config in editor"
+    echo -e "   ${GREEN}qiqiclaw gateway install${NC} Install gateway service (messaging + cron)"
+    echo -e "   ${GREEN}qiqiclaw update${NC}       Update to latest version"
+    echo -e "   ${GREEN}hermes${NC}                Legacy compatibility alias"
     echo ""
 
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
@@ -2244,7 +2445,7 @@ postinstall_mode() {
     print_banner
     detect_os
 
-    log_info "Post-install mode: setting up Hermes for pip install"
+    log_info "Post-install mode: setting up QiQiClaw for pip install"
 
     check_node
     check_network_prerequisites
@@ -2254,13 +2455,13 @@ postinstall_mode() {
         ensure_browser
     fi
 
-    HERMES_CMD="$(command -v hermes 2>/dev/null || echo "")"
+    HERMES_CMD="$(command -v qiqiclaw 2>/dev/null || command -v hermes 2>/dev/null || echo "")"
     if [ -n "$HERMES_CMD" ]; then
-        log_info "Running hermes setup..."
+        log_info "Running qiqiclaw setup..."
         "$HERMES_CMD" setup
     else
-        log_warn "hermes command not found on PATH"
-        log_info "Try: python -m hermes_cli.main setup"
+        log_warn "qiqiclaw command not found on PATH"
+        log_info "Try: python -m qiqiclaw_cli.main setup"
     fi
 }
 
@@ -2279,7 +2480,7 @@ install_desktop() {
     # with no app and a confusing "couldn't find a built desktop" at launch.
     # Always re-resolve Node here. Stages run in separate processes, so we can't
     # trust an earlier check; more importantly check_node now enforces the build
-    # floor (^20.19 || >=22.12) and prepends the Hermes-managed Node to PATH, so
+    # floor (^20.19 || >=22.12) and prepends the QiQiClaw-managed Node to PATH, so
     # the build never runs on a too-old system Node — the cause of the opaque
     # "Build desktop app … exit code 1" failure (Vite crashes on old Node).
     check_node
@@ -2336,16 +2537,22 @@ install_desktop() {
 
     local app=""
     if [ "$OS" = "linux" ]; then
-        if [ -x "$desktop_dir/release/linux-unpacked/Hermes" ]; then
-            app="$desktop_dir/release/linux-unpacked/Hermes"
+        if [ -x "$desktop_dir/release/linux-unpacked/qiqiclaw-desktop" ]; then
+            app="$desktop_dir/release/linux-unpacked/qiqiclaw-desktop"
+        elif [ -x "$desktop_dir/release/linux-unpacked/QiQiClaw Desktop" ]; then
+            app="$desktop_dir/release/linux-unpacked/QiQiClaw Desktop"
+        elif [ -x "$desktop_dir/release/linux-unpacked/QiQiClaw" ]; then
+            app="$desktop_dir/release/linux-unpacked/QiQiClaw"
         elif [ -x "$desktop_dir/release/linux-unpacked/hermes" ]; then
             app="$desktop_dir/release/linux-unpacked/hermes"
         fi
     else
         local cand
         for cand in \
-            "$desktop_dir/release/mac-arm64/Hermes.app" \
-            "$desktop_dir/release/mac/Hermes.app"; do
+            "$desktop_dir/release/mac-arm64/QiQiClaw Desktop.app" \
+            "$desktop_dir/release/mac/QiQiClaw Desktop.app" \
+            "$desktop_dir/release/mac-arm64/QiQiClaw.app" \
+            "$desktop_dir/release/mac/QiQiClaw.app"; do
             if [ -d "$cand" ]; then
                 app="$cand"
                 break
@@ -2385,7 +2592,7 @@ install_desktop() {
     # macOS: make the locally-built (ad-hoc) app relaunchable after an in-place
     # self-update. An ad-hoc bundle has no stable Designated Requirement, so a
     # later in-place rebuild (new cdhash) plus the inherited quarantine flag
-    # trips Gatekeeper's tamper check ("Hermes is damaged and can't be opened").
+    # trips Gatekeeper's tamper check ("QiQiClaw is damaged and can't be opened").
     # Strip quarantine + re-apply a clean deep ad-hoc signature (no
     # hardened-runtime flag, which an ad-hoc build can't satisfy). Skipped when a
     # real signing identity is configured so a signed build isn't clobbered.
@@ -2470,6 +2677,12 @@ run_stage_body() {
             require_install_dir
             copy_config_templates
             ;;
+        platform-sdks)
+            detect_os
+            resolve_install_layout
+            require_install_dir
+            install_platform_sdks
+            ;;
         setup)
             detect_os
             resolve_install_layout
@@ -2486,7 +2699,7 @@ run_stage_body() {
             detect_os
             resolve_install_layout
             require_install_dir
-            # Each stage runs in its own process, so the Hermes-managed Node
+            # Each stage runs in its own process, so the QiQiClaw-managed Node
             # provisioned during prerequisites/node-deps (at $HERMES_HOME/node/bin)
             # isn't on PATH here. check_node re-adds it (or installs if missing)
             # so install_desktop can find npm instead of silently skipping.
@@ -2567,6 +2780,7 @@ main() {
     install_node_deps
     setup_path
     copy_config_templates
+    install_platform_sdks
     run_setup_wizard
     maybe_start_gateway
 

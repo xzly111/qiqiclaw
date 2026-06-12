@@ -104,6 +104,43 @@ def test_switch_model_accepts_explicit_named_custom_provider(monkeypatch):
     assert result.api_key == "no-key-required"
 
 
+def test_switch_model_builtin_provider_ignores_stale_custom_base_url(monkeypatch):
+    """Switching from a relay/custom route to a built-in provider must not carry its URL."""
+    seen = {}
+
+    def fake_resolve_runtime_provider(**kwargs):
+        seen.update(kwargs)
+        return {
+            "api_key": "sk-deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "api_mode": "chat_completions",
+        }
+
+    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", fake_resolve_runtime_provider)
+    monkeypatch.setattr("hermes_cli.models.validate_requested_model", lambda *a, **k: _MOCK_VALIDATION)
+    monkeypatch.setattr("hermes_cli.model_switch.get_model_info", lambda *a, **k: None)
+    monkeypatch.setattr("hermes_cli.model_switch.get_model_capabilities", lambda *a, **k: None)
+
+    result = switch_model(
+        raw_input="deepseek-v4-pro",
+        current_provider="custom",
+        current_model="gpt-5.5",
+        current_base_url="https://oneapi.hk/v1",
+        current_api_key="sk-oneapi",
+        explicit_provider="deepseek",
+        explicit_base_url="https://oneapi.hk/v1",
+        user_providers={},
+        custom_providers=[],
+    )
+
+    assert result.success is True
+    assert result.target_provider == "deepseek"
+    assert result.base_url == "https://api.deepseek.com/v1"
+    assert result.api_key == "sk-deepseek"
+    assert seen["requested"] == "deepseek"
+    assert seen["explicit_base_url"] is None
+
+
 def test_list_groups_same_name_custom_providers_into_one_row(monkeypatch):
     """Multiple custom_providers entries sharing a name should produce one row
     with all models collected, not N duplicate rows."""

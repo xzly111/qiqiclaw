@@ -43,7 +43,7 @@ describe('desktop i18n runtime translator', () => {
 
     setRuntimeI18nLocale('zh-hant')
     expect(translateNow('settings.appearance.title')).toBe('外觀')
-    expect(translateNow('settings.nav.providerApiKeys')).toBe('API 金鑰')
+    expect(translateNow('settings.nav.providerCredentials')).toBe('提供商')
   })
 
   it('keeps translated settings field copy addressable from schema keys', () => {

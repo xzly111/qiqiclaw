@@ -1,14 +1,14 @@
 ---
-title: "Kanban Worker — Hermes Kanban worker 的陷阱、示例与边界情况"
+title: "Kanban Worker — QiQiClaw Kanban worker 的陷阱、示例与边界情况"
 sidebar_label: "Kanban Worker"
-description: "Hermes Kanban worker 的陷阱、示例与边界情况"
+description: "QiQiClaw Kanban worker 的陷阱、示例与边界情况"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
 # Kanban Worker
 
-Hermes Kanban worker 的陷阱、示例与边界情况。生命周期本身会自动注入到每个 worker 的系统 prompt（提示词）中，作为 `KANBAN_GUIDANCE`（来自 `agent/prompt_builder.py`）；当你需要深入了解特定场景时，加载此 skill 即可。
+QiQiClaw Kanban worker 的陷阱、示例与边界情况。生命周期本身会自动注入到每个 worker 的系统 prompt（提示词）中，作为 `KANBAN_GUIDANCE`（来自 `agent/prompt_builder.py`）；当你需要深入了解特定场景时，加载此 skill 即可。
 
 ## Skill 元数据
 
@@ -24,12 +24,12 @@ Hermes Kanban worker 的陷阱、示例与边界情况。生命周期本身会�
 ## 参考：完整 SKILL.md
 
 :::info
-以下是 Hermes 在触发此 skill 时加载的完整 skill 定义。这是 skill 激活时 agent 所看到的指令内容。
+以下是 QiQiClaw 在触发此 skill 时加载的完整 skill 定义。这是 skill 激活时 agent 所看到的指令内容。
 :::
 
 # Kanban Worker — 陷阱与示例
 
-> 你看到此 skill，是因为 Hermes Kanban 调度器以 `--skills kanban-worker` 参数将你作为 worker 派生——它会为每个被派发的 worker 自动加载。**生命周期**（6 个步骤：orient → work → heartbeat → block/complete）也存在于自动注入到你系统 prompt 中的 `KANBAN_GUIDANCE` 块里。此 skill 是更深层的细节：良好的交接形式、重试诊断、边界情况。
+> 你看到此 skill，是因为 QiQiClaw Kanban 调度器以 `--skills kanban-worker` 参数将你作为 worker 派生——它会为每个被派发的 worker 自动加载。**生命周期**（6 个步骤：orient → work → heartbeat → block/complete）也存在于自动注入到你系统 prompt 中的 `KANBAN_GUIDANCE` 块里。此 skill 是更深层的细节：良好的交接形式、重试诊断、边界情况。
 
 ## 工作区处理
 

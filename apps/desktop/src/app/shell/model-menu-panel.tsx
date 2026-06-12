@@ -15,7 +15,7 @@ import {
   DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { HermesGateway } from '@/hermes'
+import type { QiQiClawGateway } from '@/hermes'
 import { getGlobalModelOptions } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { displayModelName, modelDisplayParts, reasoningEffortLabel } from '@/lib/model-status-label'
@@ -40,8 +40,8 @@ import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 import { ModelEditSubmenu, resolveFastControl } from './model-edit-submenu'
 
 interface ModelMenuPanelProps {
-  gateway?: HermesGateway
-  onSelectModel: (selection: { model: string; persistGlobal: boolean; provider: string }) => Promise<boolean> | void
+  gateway?: QiQiClawGateway
+  onSelectModel: (selection: { base_url?: string; model: string; persistGlobal: boolean; provider: string }) => Promise<boolean> | void
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
 }
 
@@ -87,8 +87,16 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
 
   const providers = modelOptions.data?.providers
 
-  const switchTo = (model: string, provider: string) =>
-    onSelectModel({ model, persistGlobal: !activeSessionId, provider })
+  const switchTo = (model: string, provider: ModelOptionProvider) => {
+    const entry = provider.model_entries?.[model]
+
+    return onSelectModel({
+      model,
+      persistGlobal: !activeSessionId,
+      provider: provider.slug,
+      ...(entry?.base_url ? { base_url: entry.base_url } : {})
+    })
+  }
 
   const groups = useMemo(
     () => groupModels(providers ?? [], search, { model: optionsModel, provider: optionsProvider }, visibleModels),
@@ -159,7 +167,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
 
                 // Grayed text: active row shows live state (Fast + effort);
                 // others show a fast-capability hint.
-                const meta = isCurrent
+                const stateMeta = isCurrent
                   ? [
                       fastControl.kind !== 'none' && fastControl.on ? copy.fast : null,
                       reasoningEffortLabel(currentReasoningEffort) || copy.medium
@@ -169,6 +177,8 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                   : caps?.fast || family.fastId
                     ? copy.fast
                     : ''
+                const routeMeta = modelRouteMeta(group.provider, family.id)
+                const meta = [stateMeta, routeMeta].filter(Boolean).join(' · ')
 
                 // Every row is a hover-Edit submenu trigger. Activating it
                 // (pointer or keyboard) switches to the family's base model;
@@ -177,7 +187,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                 // both click and Enter/Space for keyboard parity.
                 const activate = () => {
                   if (!isCurrent) {
-                    void switchTo(family.id, group.provider.slug)
+                    void switchTo(family.id, group.provider)
                   }
                 }
 
@@ -193,17 +203,17 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                         }
                       }}
                     >
-                      <span className="min-w-0 flex-1 truncate">
-                        {name}
-                        {meta ? <span className="text-(--ui-text-tertiary)"> {meta}</span> : null}
+                      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                        <span className="truncate">{name}</span>
+                        {meta ? <span className="truncate text-[0.66rem] text-(--ui-text-tertiary)">{meta}</span> : null}
                       </span>
                       {isCurrent ? <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" /> : null}
                     </DropdownMenuSubTrigger>
                     <ModelEditSubmenu
                       fastControl={fastControl}
                       isActive={isCurrent}
-                      onActivate={() => switchTo(family.id, group.provider.slug)}
-                      onSelectModel={nextModel => switchTo(nextModel, group.provider.slug)}
+                      onActivate={() => switchTo(family.id, group.provider)}
+                      onSelectModel={nextModel => switchTo(nextModel, group.provider)}
                       reasoning={caps?.reasoning ?? true}
                       requestGateway={requestGateway}
                     />
@@ -247,10 +257,12 @@ function groupModels(
       continue
     }
 
-    const matches = (family: ModelFamily) =>
-      `${family.id} ${family.fastId ?? ''} ${provider.name} ${provider.slug} ${displayModelName(family.id)}`
+    const matches = (family: ModelFamily) => {
+      const entry = provider.model_entries?.[family.id]
+      return `${family.id} ${family.fastId ?? ''} ${provider.name} ${provider.slug} ${displayModelName(family.id)} ${entry?.route_label ?? ''} ${entry?.endpoint_host ?? ''}`
         .toLowerCase()
         .includes(q)
+    }
 
     // Which model ids to show (the active one is always added on top of this).
     let shown: Set<string>
@@ -292,4 +304,9 @@ function groupModels(
   groups.sort((a, b) => a.provider.name.localeCompare(b.provider.name))
 
   return groups
+}
+
+function modelRouteMeta(provider: ModelOptionProvider, model: string): string {
+  const entry = provider.model_entries?.[model]
+  return entry?.route_label || entry?.endpoint_host || provider.slug
 }

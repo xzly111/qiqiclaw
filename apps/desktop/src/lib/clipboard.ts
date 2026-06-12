@@ -3,8 +3,10 @@
 // document loses focus (e.g. clicking a portaled Radix dropdown). The IPC
 // path runs in the main process and is unconditional.
 
+import { desktopBridge } from '@/lib/desktop-bridge'
+
 export function installClipboardShim() {
-  const ipc = window.hermesDesktop?.writeClipboard
+  const ipc = desktopBridge()?.writeClipboard
 
   if (!ipc || !navigator.clipboard) {
     return

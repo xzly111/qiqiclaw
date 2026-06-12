@@ -1156,8 +1156,8 @@ class TelegramAdapter(BasePlatformAdapter):
             "Telegram polling could not recover after %d retries (%ds total wait). "
             "The previous gateway session is still held open on Telegram's servers, "
             "or another process is using the same bot token. "
-            "To recover: ensure no other Hermes or OpenClaw instance is running "
-            "with this token, then restart the gateway with 'hermes gateway restart'."
+            "To recover: ensure no other QIQI-Claw or OpenClaw instance is running "
+            "with this token, then restart the gateway with 'qiqiclaw gateway restart'."
             % (MAX_CONFLICT_RETRIES, sum(10 + i * 10 for i in range(1, MAX_CONFLICT_RETRIES + 1)))
         )
         logger.error(
@@ -1667,7 +1667,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         "TELEGRAM_WEBHOOK_URL is set. Without it, the "
                         "webhook endpoint accepts forged updates from "
                         "anyone who can reach it — see "
-                        "https://github.com/NousResearch/hermes-agent/"
+                        "https://github.com/xzly111/qiqiclaw/"
                         "security/advisories/GHSA-3vpc-7q5r-276h.\n\n"
                         "Generate a secret and set it in your .env:\n"
                         "  export TELEGRAM_WEBHOOK_SECRET=\"$(openssl rand -hex 32)\"\n\n"

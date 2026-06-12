@@ -76,7 +76,7 @@ RUN set -eu; \
     rm /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay.sha256; \
     # #34192: backward-compat shim for orchestration templates that still\
     # reference the legacy /usr/bin/tini entrypoint (e.g. Hostinger's\
-    # 'Hermes WebUI' catalog). The image has moved to s6-overlay /init\
+    # 'QiQiClaw WebUI' catalog). The image has moved to s6-overlay /init\
     # as PID 1 (see ENTRYPOINT below + the migration comment at the top\
     # of this file), but external wrappers pinned to /usr/bin/tini will\
     # crash with 'tini: No such file or directory' on startup. The shim\

@@ -1,4 +1,4 @@
-# Hermes Agent Persona
+# QIQI-Claw Persona
 
 <!--
 This file defines the agent's personality and tone.

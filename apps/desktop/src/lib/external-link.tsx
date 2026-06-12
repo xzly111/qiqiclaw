@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
+import { desktopBridge } from '@/lib/desktop-bridge'
 import { ArrowUpRight } from '@/lib/icons'
 
 import { cn } from './utils'
@@ -133,7 +134,7 @@ export function fetchLinkTitle(url: string): Promise<string> {
     return pending
   }
 
-  const bridge = typeof window === 'undefined' ? undefined : window.hermesDesktop?.fetchLinkTitle
+  const bridge = desktopBridge()?.fetchLinkTitle
 
   if (!bridge) {
     titleCache.set(key, '')
@@ -190,7 +191,7 @@ export function useLinkTitle(url?: null | string): string {
 
 export function openExternalLink(href: string): void {
   if (href) {
-    void window.hermesDesktop?.openExternal?.(href)
+    void desktopBridge()?.openExternal?.(href)
   }
 }
 

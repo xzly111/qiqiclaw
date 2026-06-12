@@ -43,6 +43,7 @@ interface DesktopInstallOverlayProps {
   /** When false, the overlay never renders -- useful for dev when we want
    * to suppress it entirely. */
   enabled?: boolean
+  onCompleted?: () => void
 }
 
 interface StageRowProps {
@@ -242,7 +243,7 @@ function applyEvent(state: DesktopBootstrapState, ev: DesktopBootstrapEvent): De
   return state
 }
 
-export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayProps) {
+export function DesktopInstallOverlay({ enabled = true, onCompleted }: DesktopInstallOverlayProps) {
   const { t } = useI18n()
   const copy = t.install
   const [state, setState] = useState<DesktopBootstrapState>(EMPTY_STATE)
@@ -290,7 +291,13 @@ export function DesktopInstallOverlay({ enabled = true }: DesktopInstallOverlayP
         // stays empty, app falls through to existing onboarding flow.
       })
 
-    const off = desktop.onBootstrapEvent(ev => setState(prev => applyEvent(prev, ev)))
+    const off = desktop.onBootstrapEvent(ev => {
+      if (ev.type === 'complete') {
+        onCompleted?.()
+      }
+
+      setState(prev => applyEvent(prev, ev))
+    })
 
     return () => {
       cancelled = true

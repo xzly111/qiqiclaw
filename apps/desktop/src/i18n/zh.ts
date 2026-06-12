@@ -50,7 +50,7 @@ export const zh: Translations = {
       loadingSettings: '正在加载 QiQiClaw 设置',
       loadingSessions: '正在加载最近会话',
       startingDesktopConnection: '正在启动桌面连接',
-      startingHermesDesktop: '正在启动 QiQiClaw Desktop…'
+      startingQiQiClawDesktop: '正在启动 QiQiClaw Desktop…'
     },
     errors: {
       backgroundExited: 'QiQiClaw 后台进程已退出。',
@@ -96,7 +96,7 @@ export const zh: Translations = {
     copyDetailFailed: '无法复制通知详情',
     backendOutOfDateTitle: '后端版本过旧',
     backendOutOfDateMessage: '你的 QiQiClaw 后端早于当前桌面构建，可能无法正常工作。请更新以保持一致。',
-    updateHermes: '更新 QiQiClaw',
+    updateQiQiClaw: '更新 QiQiClaw',
     updateReadyTitle: '有可用更新',
     updateReadyMessage: count => `有 ${count} 项新更改可用。`,
     seeWhatsNew: '查看更新内容',
@@ -242,8 +242,8 @@ export const zh: Translations = {
     resetFailed: '重置失败',
     nav: {
       providers: '提供方',
-      providerAccounts: '账号',
-      providerApiKeys: 'API 密钥',
+      providerModels: '模型',
+      providerCredentials: '提供商',
       gateway: '网关',
       apiKeys: '工具与密钥',
       keysTools: '工具',
@@ -680,15 +680,19 @@ export const zh: Translations = {
       }
     },
     providers: {
-      connectAccount: '连接账号',
-      haveApiKey: '改用 API 密钥？',
-      intro: '使用订阅登录，无需复制 API 密钥。QiQiClaw 会在应用中为你完成浏览器登录。',
-      connected: '已连接',
-      collapse: '收起',
-      connectAnother: '连接其他提供方',
-      otherProviders: '其他提供方',
       noProviderKeys: '没有可用的提供方 API 密钥。',
-      loading: '正在加载提供方...'
+      loading: '正在加载提供方...',
+      credentialPoolTitle: '凭证池',
+      credentialPoolDesc:
+        'QiQiClaw setup、聊天模型切换、辅助模型和编排层使用的轮换提供商凭证。条目由后端存储，这里只显示脱敏摘要。',
+      credentialPoolLoading: '正在加载凭证池...',
+      credentialPoolEmpty: '尚未配置池化凭证。',
+      credentialPoolRedacted: '已脱敏',
+      provider: '提供商',
+      apiKey: 'API 密钥',
+      label: '标签',
+      add: '添加',
+      requests: count => `${count} 次请求`
     },
     sessions: {
       loading: '正在加载已归档会话…',
@@ -855,7 +859,7 @@ export const zh: Translations = {
     gatewayStopped: '消息网关已停止',
     hermesActiveSessions: (version, count) => `QiQiClaw ${version} · 活跃会话 ${count}`,
     restartMessaging: '重启消息服务',
-    updateHermes: '更新 QiQiClaw',
+    updateQiQiClaw: '更新 QiQiClaw',
     actionRunning: '运行中',
     actionDone: '完成',
     actionFailed: '失败',
@@ -904,6 +908,8 @@ export const zh: Translations = {
     credentialsSet: '凭据已设置',
     needsSetup: '需要设置',
     gatewayStopped: '消息网关已停止',
+    gatewayRestartFailed: '重启消息网关失败',
+    gatewayRestartStarted: '消息网关重启已启动',
     getCredentials: '获取你的凭据',
     openSetupGuide: '打开设置指南',
     required: '必填',

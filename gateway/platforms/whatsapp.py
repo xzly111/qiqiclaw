@@ -243,7 +243,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
     # WhatsApp allows ~65K but long messages are unreadable on mobile.
     MAX_MESSAGE_LENGTH = 4096
     supports_code_blocks = True  # WhatsApp renders fenced code blocks (monospace)
-    DEFAULT_REPLY_PREFIX = "⚕ *Hermes Agent*\n────────────\n"
+    DEFAULT_REPLY_PREFIX = "⚕ *QIQI-Claw*\n────────────\n"
     
     # Default bridge location relative to the hermes-agent install
     _DEFAULT_BRIDGE_DIR = Path(__file__).resolve().parents[2] / "scripts" / "whatsapp-bridge"

@@ -1,4 +1,4 @@
-"""ACP agent server — exposes Hermes Agent via the Agent Client Protocol."""
+"""ACP agent server — exposes QIQI-Claw via the Agent Client Protocol."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                 uri=uri,
                 name=name,
                 title=title,
-                body="[Resource link only; Hermes cannot read non-file ACP resource URIs directly.]",
+                body="[Resource link only; QIQI-Claw cannot read non-file ACP resource URIs directly.]",
             ),
         }]
 
@@ -454,7 +454,7 @@ class HermesACPAgent(acp.Agent):
         "compact": "Compress conversation context",
         "steer": "Inject guidance into the currently running agent turn",
         "queue": "Queue a prompt to run after the current turn finishes",
-        "version": "Show Hermes version",
+        "version": "Show QIQI-Claw version",
     }
 
     _ADVERTISED_COMMANDS = (
@@ -495,7 +495,7 @@ class HermesACPAgent(acp.Agent):
         },
         {
             "name": "version",
-            "description": "Show Hermes version",
+            "description": "Show QIQI-Claw version",
         },
     )
 
@@ -1875,7 +1875,7 @@ class HermesACPAgent(acp.Agent):
         return f"Queued for the next turn. ({depth} queued)"
 
     def _cmd_version(self, args: str, state: SessionState) -> str:
-        return f"Hermes Agent v{HERMES_VERSION}"
+        return f"QIQI-Claw v{HERMES_VERSION}"
 
     # ---- Model switching (ACP protocol method) -------------------------------
 

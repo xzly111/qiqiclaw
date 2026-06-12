@@ -138,10 +138,10 @@
 | 模块名 `hermes_cli` | 被 665 文件 import | 改名=重写全后端 import，等同被否决的 Stage D 强制合并 |
 | 模块名 `hermes_constants/state/logging` | 328/175/9 | 同上 |
 | `HERMES_HOME` / `get_hermes_home()` | 450 文件 | 解析你的 **live state.db** 路径，误改丢数据（不可逆） |
-| 功能字符串 | 8,380 处 | `~/.hermes/` 路径、`hermes_pkce` 认证标签、`HERMES_*` env、`hermes` CLI 命令、`HermesAgent` User-Agent —— 均与行为/外部状态耦合，改了破坏兼容性 |
+| 功能字符串 | 8,380 处 | `~/.hermes/` 路径、`hermes_pkce` 认证标签、`HERMES_*` env、`hermes` CLI 命令、`QiQiClawAgent` User-Agent —— 均与行为/外部状态耦合，改了破坏兼容性 |
 
 ### 关键事实：用户可见品牌已是 QiQiClaw
-- CLI 横幅/版本、桌面窗口标题、命令名均已是 QiQiClaw（实测无残留 "Hermes" 文案）。
+- CLI 横幅/版本、桌面窗口标题、命令名均已是 QiQiClaw（实测无残留旧品牌 "QiQiClaw" 文案）。
 - 残留的 31k+ `hermes` 引用全是**内部符号/路径/类型名**，与功能逻辑逐行交织，
   无安全的批量改名方案，且**用户可见收益为零**。
 

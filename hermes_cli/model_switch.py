@@ -46,6 +46,12 @@ from agent.models_dev import (
 logger = logging.getLogger(__name__)
 
 
+def is_custom_provider(provider: str) -> bool:
+    """Return whether a provider route owns an explicit OpenAI-compatible URL."""
+    clean = (provider or "").strip().lower()
+    return clean == "custom" or clean.startswith("custom:")
+
+
 # ---------------------------------------------------------------------------
 # Non-agentic model warning
 # ---------------------------------------------------------------------------
@@ -281,10 +287,10 @@ class ModelSwitchResult:
 # Flag parsing
 # ---------------------------------------------------------------------------
 
-def parse_model_flags(raw_args: str) -> tuple[str, str, bool, bool]:
-    """Parse --provider, --global, and --refresh flags from /model command args.
+def parse_model_flags(raw_args: str) -> tuple[str, str, bool, bool, str]:
+    """Parse --provider, --global, --refresh, and --base-url flags.
 
-    Returns (model_input, explicit_provider, is_global, force_refresh).
+    Returns (model_input, explicit_provider, is_global, force_refresh, explicit_base_url).
 
     Examples::
 
@@ -298,11 +304,12 @@ def parse_model_flags(raw_args: str) -> tuple[str, str, bool, bool]:
     is_global = False
     explicit_provider = ""
     force_refresh = False
+    explicit_base_url = ""
 
     # Normalize Unicode dashes (Telegram/iOS auto-converts -- to em/en dash)
     # A single Unicode dash before a flag keyword becomes "--"
     import re as _re
-    raw_args = _re.sub(r'[\u2012\u2013\u2014\u2015](provider|global|refresh)', r'--\1', raw_args)
+    raw_args = _re.sub(r'[\u2012\u2013\u2014\u2015](provider|global|refresh|base-url)', r'--\1', raw_args)
 
     # Extract --global
     if "--global" in raw_args:
@@ -322,12 +329,15 @@ def parse_model_flags(raw_args: str) -> tuple[str, str, bool, bool]:
         if parts[i] == "--provider" and i + 1 < len(parts):
             explicit_provider = parts[i + 1]
             i += 2
+        elif parts[i] == "--base-url" and i + 1 < len(parts):
+            explicit_base_url = parts[i + 1]
+            i += 2
         else:
             filtered.append(parts[i])
             i += 1
 
     model_input = " ".join(filtered).strip()
-    return (model_input, explicit_provider, is_global, force_refresh)
+    return (model_input, explicit_provider, is_global, force_refresh, explicit_base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +626,7 @@ def switch_model(
     explicit_provider: str = "",
     user_providers: dict = None,
     custom_providers: list | None = None,
+    explicit_base_url: str = "",
 ) -> ModelSwitchResult:
     """Core model-switching pipeline shared between CLI and gateway.
 
@@ -664,6 +675,7 @@ def switch_model(
 
     resolved_alias = ""
     new_model = raw_input.strip()
+    explicit_base_url = (explicit_base_url or "").strip()
     target_provider = current_provider
 
     # =================================================================
@@ -699,6 +711,8 @@ def switch_model(
             )
 
         target_provider = pdef.id
+        if explicit_provider.strip().lower() == "custom" and explicit_base_url:
+            target_provider = "custom"
 
         # Guard against silent aggregator hops. A vendor name like bare
         # "openai" is an alias that resolves to an aggregator ("openrouter").
@@ -744,9 +758,10 @@ def switch_model(
 
         # If no model specified, try auto-detect from endpoint
         if not new_model:
-            if pdef.base_url:
+            detect_base_url = explicit_base_url or pdef.base_url
+            if detect_base_url:
                 from hermes_cli.runtime_provider import _auto_detect_local_model
-                detected = _auto_detect_local_model(pdef.base_url)
+                detected = _auto_detect_local_model(detect_base_url)
                 if detected:
                     new_model = detected
                 else:
@@ -756,7 +771,7 @@ def switch_model(
                         provider_label=pdef.name,
                         is_global=is_global,
                         error_message=(
-                            f"No model detected on {pdef.name} ({pdef.base_url}). "
+                            f"No model detected on {pdef.name} ({detect_base_url}). "
                             f"Specify the model explicitly: /model <model-name> --provider {explicit_provider}"
                         ),
                     )
@@ -890,9 +905,11 @@ def switch_model(
         if custom_pdef is not None:
             provider_label = custom_pdef.name
 
+    route_explicit_base_url = explicit_base_url if is_custom_provider(target_provider) else ""
+
     # --- Resolve credentials ---
     api_key = current_api_key
-    base_url = current_base_url
+    base_url = route_explicit_base_url or current_base_url
     api_mode = ""
 
     if provider_changed or explicit_provider:
@@ -908,7 +925,8 @@ def switch_model(
             _user_pdef = _ruser(explicit_provider.strip().lower(), user_providers)
             if _user_pdef is None:
                 _user_pdef = _ruser(target_provider, user_providers)
-        if _user_pdef is not None and _user_pdef.base_url:
+        if _user_pdef is not None and (_user_pdef.base_url or explicit_base_url):
+            _runtime_base_url = explicit_base_url or _user_pdef.base_url
             _ucfg = (user_providers or {}).get(explicit_provider.strip().lower()) \
                 or (user_providers or {}).get(target_provider) or {}
             _ukey = str(_ucfg.get("api_key", "") or "").strip()
@@ -922,20 +940,21 @@ def switch_model(
                 runtime = resolve_runtime_provider(
                     requested=target_provider,
                     explicit_api_key=_ukey or None,
-                    explicit_base_url=_user_pdef.base_url,
+                    explicit_base_url=_runtime_base_url if is_custom_provider(target_provider) else None,
                     target_model=new_model,
                 )
                 api_key = runtime.get("api_key", "") or _ukey
-                base_url = runtime.get("base_url", "") or _user_pdef.base_url
+                base_url = runtime.get("base_url", "") or _runtime_base_url
                 api_mode = runtime.get("api_mode", "")
             except Exception:
                 api_key = _ukey
-                base_url = _user_pdef.base_url
+                base_url = _runtime_base_url
                 api_mode = ""
         else:
             try:
                 runtime = resolve_runtime_provider(
                     requested=target_provider,
+                    explicit_base_url=route_explicit_base_url or None,
                     target_model=new_model,
                 )
                 api_key = runtime.get("api_key", "")
@@ -956,6 +975,7 @@ def switch_model(
         try:
             runtime = resolve_runtime_provider(
                 requested=current_provider,
+                explicit_base_url=route_explicit_base_url or None,
                 target_model=new_model,
             )
             # If resolution fell through to "custom" (e.g. named custom provider like
@@ -1026,7 +1046,10 @@ def switch_model(
                 entry_name = entry.get("name", "")
                 entry_slug = f"custom:{entry_name}" if entry_name else ""
                 entry_url = entry.get("base_url", "")
-                if entry_slug == target_provider or entry_url == base_url:
+                if (
+                    entry_slug == target_provider
+                    or str(entry_url or "").rstrip("/") == str(base_url or "").rstrip("/")
+                ):
                     # Check if the requested model matches the entry's model
                     entry_model = entry.get("model", "")
                     entry_models = entry.get("models", {})

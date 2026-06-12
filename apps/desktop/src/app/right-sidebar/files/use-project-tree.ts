@@ -42,6 +42,26 @@ function patchNode(nodes: TreeNode[] | undefined | null, id: string, patch: (n: 
   })
 }
 
+function findNode(nodes: TreeNode[] | undefined | null, id: string): TreeNode | null {
+  if (!nodes) {
+    return null
+  }
+
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node
+    }
+
+    const child = findNode(node.children, id)
+
+    if (child) {
+      return child
+    }
+  }
+
+  return null
+}
+
 function placeholderChild(parentId: string): TreeNode {
   return { id: `${parentId}::${PLACEHOLDER_ID}`, isDirectory: false, name: 'Loading…' }
 }
@@ -196,6 +216,11 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
   const loadChildren = useCallback(
     async (id: string) => {
       if (!cwd || inflight.has(id)) {
+        return
+      }
+
+      const existing = findNode($projectTree.get().data, id)
+      if (!existing?.isDirectory || (existing.children !== undefined && !existing.error)) {
         return
       }
 

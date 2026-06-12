@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qiqiclaw"
-version = "0.16.0.post1"
+version = "2.0.0"
 description = "QiQiClaw local desktop and backend distribution with QiQiClaw compatibility modules"
 readme = "README_CN.md"
 # Upper bound is load-bearing, not cosmetic. uv resolves the project's
@@ -229,7 +229,7 @@ youtube = [
   # at first invocation with ModuleNotFoundError (issue #22243).
   "youtube-transcript-api==1.2.4",
 ]
-# `hermes dashboard` (localhost SPA + API).  Not in core to keep the default install lean.
+# QiQiClaw dashboard compatibility server (localhost SPA + API). Not in core to keep the default install lean.
 # starlette==1.0.1 pinned for CVE-2026-48710 (BadHost) — fastapi pulls Starlette
 # transitively and pre-1.0.1 is the vulnerable range. See the mcp extra above.
 web = ["fastapi==0.133.1", "uvicorn[standard]==0.41.0", "starlette==1.0.1"]

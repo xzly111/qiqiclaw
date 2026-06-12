@@ -1,4 +1,4 @@
-"""Shared constants for Hermes Agent.
+"""Shared constants for QIQI-Claw.
 
 Import-safe module with no dependencies — can be imported from anywhere
 without risk of circular imports.
@@ -42,12 +42,14 @@ def get_hermes_home_override() -> str | None:
 
 
 def _get_platform_default_hermes_home() -> Path:
-    """Return the platform-native default Hermes home path."""
-    if sys.platform == "win32":
-        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-        base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
-        return base / "hermes"
-    return Path.home() / ".hermes"
+    """Return the platform-native default home path.
+
+    QiQiClaw keeps the legacy ``hermes_constants`` module for compatibility
+    with upstream code, but the canonical data directory is ``~/.qiqiclaw`` on
+    every desktop OS.  Keeping this fallback aligned prevents legacy imports
+    from silently writing config, sessions, or logs into ``~/.hermes``.
+    """
+    return Path.home() / ".qiqiclaw"
 
 
 def get_hermes_home() -> Path:
@@ -71,6 +73,9 @@ def get_hermes_home() -> Path:
         return Path(override)
 
     val = os.environ.get("HERMES_HOME", "").strip()
+    if val:
+        return Path(val)
+    val = os.environ.get("QIQICLAW_HOME", "").strip()
     if val:
         return Path(val)
 

@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: qiqiclaw
 Version: 0.16.0.post1
-Summary: QiQiClaw - Hermes Agent 0.16 based local upgrade with QiQiClaw compatibility modules
+Summary: QiQiClaw - QIQI-Claw 0.16 based local upgrade with QiQiClaw compatibility modules
 Author: Nous Research, QiQi Claw Team
 License-Expression: MIT
 Requires-Python: <3.14,>=3.11

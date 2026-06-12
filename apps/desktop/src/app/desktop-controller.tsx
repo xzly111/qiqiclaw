@@ -29,6 +29,7 @@ import {
   unpinSession
 } from '../store/layout'
 import { $filePreviewTarget, $previewTarget, closeActiveRightRailTab } from '../store/preview'
+import { requestDesktopOnboarding } from '../store/onboarding'
 import {
   $activeGatewayProfile,
   $freshSessionRequest,
@@ -84,7 +85,7 @@ import { PersistentTerminal, TerminalSlot } from './right-sidebar/terminal/persi
 import { CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
 import { useCwdActions } from './session/hooks/use-cwd-actions'
-import { useHermesConfig } from './session/hooks/use-hermes-config'
+import { useQiQiClawConfig } from './session/hooks/use-hermes-config'
 import { useMessageStream } from './session/hooks/use-message-stream'
 import { useModelControls } from './session/hooks/use-model-controls'
 import { usePreviewRouting } from './session/hooks/use-preview-routing'
@@ -389,7 +390,7 @@ export function DesktopController() {
     requestGateway
   })
 
-  const { refreshHermesConfig, sttEnabled, voiceMaxRecordingSeconds } = useHermesConfig({
+  const { refreshQiQiClawConfig, sttEnabled, voiceMaxRecordingSeconds } = useQiQiClawConfig({
     activeSessionIdRef,
     refreshProjectBranch
   })
@@ -465,7 +466,7 @@ export function DesktopController() {
     activeSessionIdRef,
     hydrateFromStoredSession,
     queryClient,
-    refreshHermesConfig,
+    refreshQiQiClawConfig,
     refreshSessions,
     updateSessionState
   })
@@ -622,7 +623,7 @@ export function DesktopController() {
     onGatewayReady: g => {
       gatewayRef.current = g
     },
-    refreshHermesConfig,
+    refreshQiQiClawConfig,
     refreshSessions
   })
 
@@ -710,14 +711,18 @@ export function DesktopController() {
 
   const overlays = (
     <>
-      <DesktopInstallOverlay />
+      <DesktopInstallOverlay
+        onCompleted={() => {
+          requestDesktopOnboarding('QiQiClaw installed. Configure an API provider to finish setup.')
+        }}
+      />
       {/* One PTY-backed terminal mounted forever; <TerminalSlot /> placeholders
           decide where it shows. Toggling fullscreen never rebuilds the shell. */}
       <PersistentTerminal cwd={currentCwd} onAddSelectionToChat={composer.addTerminalSelectionAttachment} />
       <DesktopOnboardingOverlay
         enabled={gatewayState === 'open'}
         onCompleted={() => {
-          void refreshHermesConfig()
+          void refreshQiQiClawConfig()
           void refreshCurrentModel()
           void queryClient.invalidateQueries({ queryKey: ['model-options'] })
         }}
@@ -736,7 +741,7 @@ export function DesktopController() {
             gateway={gatewayRef.current}
             onClose={closeOverlayToPreviousRoute}
             onConfigSaved={() => {
-              void refreshHermesConfig()
+              void refreshQiQiClawConfig()
               void refreshCurrentModel()
               void queryClient.invalidateQueries({ queryKey: ['model-options'] })
             }}

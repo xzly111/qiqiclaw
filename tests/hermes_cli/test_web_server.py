@@ -1080,6 +1080,47 @@ class TestWebServerEndpoints:
                 continue
             assert member.value in platforms, f"Missing gateway platform {member.value} from /api/messaging/platforms"
 
+    def test_discover_models_persists_verified_model_library(self, monkeypatch, tmp_path):
+        """Provider discovery stores usable models in the verified picker library."""
+        qiqiclaw_home = tmp_path / "qiqiclaw"
+        qiqiclaw_home.mkdir()
+        monkeypatch.setenv("QIQICLAW_HOME", str(qiqiclaw_home))
+
+        from qiqiclaw_cli.auth import read_credential_pool, write_credential_pool
+        import qiqiclaw_cli.web_server as qws
+
+        write_credential_pool("deepseek", [{
+            "id": "deepseek-test",
+            "label": "test",
+            "auth_type": "api_key",
+            "source": "manual",
+            "access_token": "sk-test",
+            "base_url": "",
+            "priority": 0,
+            "request_count": 0,
+        }])
+        monkeypatch.setattr(
+            qws,
+            "_discover_models_with_key",
+            lambda base_url, api_key: (True, "ok", ["deepseek-chat", "deepseek-reasoner"]),
+        )
+
+        result = qws._discover_models_from_pool("deepseek")
+
+        assert result["ok"] is True
+        assert result["models"] == ["deepseek-chat", "deepseek-reasoner"]
+        assert result["saved_count"] == 2
+
+        pool = read_credential_pool("deepseek")
+        validated = pool[0]["validated_models"]
+        assert validated["deepseek-chat"]["status"] == "ok"
+        assert validated["deepseek-chat"]["base_url"] == "https://api.deepseek.com/v1"
+
+        options = qws._build_verified_model_options_payload()
+        deepseek = next(provider for provider in options["providers"] if provider["slug"] == "deepseek")
+        assert deepseek["models"] == ["deepseek-chat", "deepseek-reasoner"]
+        assert deepseek["model_entries"]["deepseek-chat"]["base_url"] == "https://api.deepseek.com/v1"
+
     def test_messaging_catalog_includes_plugin_platforms(self, monkeypatch):
         """Plugin-registered adapters appear in the catalog without per-platform code."""
         from gateway.platform_registry import PlatformEntry, platform_registry

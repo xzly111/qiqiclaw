@@ -21,6 +21,8 @@ import { notify } from '@/store/notifications'
 import { requestDesktopOnboarding } from '@/store/onboarding'
 import { clearAllPrompts, setApprovalRequest, setSecretRequest, setSudoRequest } from '@/store/prompts'
 import {
+  $currentModel,
+  $currentProvider,
   setCurrentBranch,
   setCurrentCwd,
   setCurrentFastMode,
@@ -47,7 +49,7 @@ interface MessageStreamOptions {
     runtimeSessionId?: string | null
   ) => Promise<void>
   queryClient: QueryClient
-  refreshHermesConfig: () => Promise<void>
+  refreshQiQiClawConfig: () => Promise<void>
   refreshSessions: () => Promise<void>
   updateSessionState: (
     sessionId: string,
@@ -94,6 +96,25 @@ const SUBAGENT_EVENT_TYPES = new Set([
   'subagent.progress',
   'subagent.complete'
 ])
+
+function mainAgentPayload(sessionId: string, status: 'completed' | 'running', text?: string): Record<string, unknown> {
+  const provider = $currentProvider.get()
+  const model = $currentModel.get()
+  const route = [provider, model].filter(Boolean).join(' / ')
+
+  return {
+    depth: 0,
+    goal: route ? `Main agent · ${route}` : 'Main agent',
+    model: model || undefined,
+    status,
+    subagent_id: `main-agent:${sessionId}`,
+    task_count: 1,
+    task_index: 0,
+    text: status === 'running' ? (route ? `Running on ${route}` : 'Running') : undefined,
+    summary: status === 'completed' ? (text?.trim() ? `Completed: ${text.trim()}` : 'Completed') : undefined,
+    tool_name: status === 'running' ? 'AIAgent.chat' : undefined
+  }
+}
 
 // Anonymous progress events that carry todos but no name still belong to the
 // todo stream; named todo events are obviously routed there too.
@@ -187,7 +208,7 @@ export function useMessageStream({
   activeSessionIdRef,
   hydrateFromStoredSession,
   queryClient,
-  refreshHermesConfig,
+  refreshQiQiClawConfig,
   refreshSessions,
   updateSessionState
 }: MessageStreamOptions) {
@@ -715,7 +736,7 @@ export function useMessageStream({
           requestDesktopOnboarding(payload.credential_warning)
         }
 
-        void refreshHermesConfig()
+        void refreshQiQiClawConfig()
 
         if (modelChanged || providerChanged) {
           void queryClient.invalidateQueries({
@@ -730,6 +751,7 @@ export function useMessageStream({
         flushQueuedDeltas(sessionId)
         clearSessionSubagents(sessionId)
         nativeSubagentSessionsRef.current.delete(sessionId)
+        upsertSubagent(sessionId, mainAgentPayload(sessionId, 'running'), true, 'subagent.start')
 
         if (isActiveEvent) {
           triggerHaptic('streamStart')
@@ -782,6 +804,7 @@ export function useMessageStream({
         }
 
         const finalText = coerceGatewayText(payload?.text) || coerceGatewayText(payload?.rendered)
+        upsertSubagent(sessionId, mainAgentPayload(sessionId, 'completed', finalText), true, 'subagent.complete')
         completeAssistantMessage(sessionId, finalText)
 
         if (isActiveEvent) {
@@ -941,7 +964,7 @@ export function useMessageStream({
       failAssistantMessage,
       flushQueuedDeltas,
       queryClient,
-      refreshHermesConfig,
+      refreshQiQiClawConfig,
       updateSessionState,
       upsertToolCall
     ]

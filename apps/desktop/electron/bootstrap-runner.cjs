@@ -41,6 +41,23 @@ const https = require('node:https')
 const { spawn } = require('node:child_process')
 
 const STAMP_COMMIT_RE = /^[0-9a-f]{7,40}$/i
+const DEFAULT_INSTALL_SOURCE = 'github'
+const INSTALL_SOURCES = {
+  github: {
+    name: 'github',
+    label: 'GitHub',
+    rawBaseUrl: 'https://raw.githubusercontent.com/xzly111/qiqiclaw',
+    repoHttps: 'https://github.com/xzly111/qiqiclaw.git',
+    repoSsh: 'git@github.com:xzly111/qiqiclaw.git'
+  },
+  gitee: {
+    name: 'gitee',
+    label: 'Gitee',
+    rawBaseUrl: 'https://gitee.com/szd20020329/qiqiclaw/raw',
+    repoHttps: 'https://gitee.com/szd20020329/qiqiclaw.git',
+    repoSsh: 'git@gitee.com:szd20020329/qiqiclaw.git'
+  }
+}
 
 // Stages flagged needs_user_input=true in the manifest are skipped by the
 // runner (passed -NonInteractive to install.ps1, which the install script
@@ -77,30 +94,54 @@ function bootstrapCacheDir(hermesHome) {
 }
 
 // The install.sh / install.ps1 that ships inside the already-installed agent
-// checkout under ~/.qiqiclaw/hermes-agent. Used as a last-resort fallback when
+// checkout under ~/.qiqiclaw/qiqiclaw. Used as a last-resort fallback when
 // the pinned commit can't be fetched from GitHub (e.g. a locally-built desktop
 // app stamped to an unpushed HEAD).
 function installedAgentInstallScript(hermesHome) {
   if (!hermesHome) return null
-  const candidate = path.join(hermesHome, 'hermes-agent', 'scripts', installScriptName())
-  try {
-    fs.accessSync(candidate, fs.constants.R_OK)
-    return candidate
-  } catch {
-    return null
+  const candidates = [
+    path.join(hermesHome, 'qiqiclaw', 'scripts', installScriptName()),
+    // Legacy compatibility for pre-rebrand installs.
+    path.join(hermesHome, 'hermes-agent', 'scripts', installScriptName())
+  ]
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.R_OK)
+      return candidate
+    } catch {
+      void 0
+    }
   }
+  return null
 }
 
 function cachedScriptPath(hermesHome, commit) {
   return path.join(bootstrapCacheDir(hermesHome), `install-${commit}.${process.platform === 'win32' ? 'ps1' : 'sh'}`)
 }
 
-function downloadInstallScript(commit, destPath) {
-  // Fetch from GitHub raw at the pinned commit. The raw URL with a SHA
+function installSourceFromStamp(installStamp) {
+  const explicit =
+    (installStamp && (installStamp.installSource || installStamp.sourceProvider || installStamp.provider)) ||
+    process.env.QIQICLAW_INSTALL_SOURCE ||
+    process.env.HERMES_INSTALL_SOURCE ||
+    DEFAULT_INSTALL_SOURCE
+  const key = String(explicit || DEFAULT_INSTALL_SOURCE).trim().toLowerCase()
+  const source = INSTALL_SOURCES[key] || INSTALL_SOURCES[DEFAULT_INSTALL_SOURCE]
+  return {
+    ...source,
+    rawBaseUrl: (installStamp && installStamp.rawBaseUrl) || source.rawBaseUrl,
+    repoHttps: (installStamp && installStamp.repoHttps) || source.repoHttps,
+    repoSsh: (installStamp && installStamp.repoSsh) || source.repoSsh
+  }
+}
+
+function downloadInstallScript(commit, destPath, source = INSTALL_SOURCES[DEFAULT_INSTALL_SOURCE]) {
+  // Fetch from the selected raw-code host at the pinned commit. The raw URL with a SHA
   // is immutable (unlike a branch ref), so we don't need integrity
   // verification beyond "did the file we wrote pass a syntax probe."
   const scriptName = installScriptName()
-  const url = `https://raw.githubusercontent.com/NousResearch/hermes-agent/${commit}/scripts/${scriptName}`
+  const base = (source.rawBaseUrl || INSTALL_SOURCES[DEFAULT_INSTALL_SOURCE].rawBaseUrl).replace(/\/+$/, '')
+  const url = `${base}/${commit}/scripts/${scriptName}`
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(destPath), { recursive: true })
     const tmpPath = destPath + '.tmp'
@@ -171,6 +212,7 @@ function downloadInstallScript(commit, destPath) {
 }
 
 async function resolveInstallScript({ installStamp, sourceRepoRoot, hermesHome, emit, _download = downloadInstallScript }) {
+  const installSource = installSourceFromStamp(installStamp)
   // 1. Dev shortcut: prefer a local checkout's installer so we can iterate
   //    without pushing. SOURCE_REPO_ROOT comes from main.cjs (path.resolve
   //    of APP_ROOT/../..).
@@ -202,12 +244,20 @@ async function resolveInstallScript({ installStamp, sourceRepoRoot, hermesHome, 
 
   emit({
     type: 'log',
-    line: `[bootstrap] fetching ${installScriptName()} for ${installStamp.commit.slice(0, 12)} from GitHub`
+    line:
+      `[bootstrap] fetching ${installScriptName()} for ${installStamp.commit.slice(0, 12)} ` +
+      `from ${installSource.label || installSource.name}`
   })
   try {
-    await _download(installStamp.commit, cached)
+    await _download(installStamp.commit, cached, installSource)
     emit({ type: 'log', line: `[bootstrap] saved to ${cached}` })
-    return { path: cached, source: 'download', commit: installStamp.commit, kind: installScriptKind() }
+    return {
+      path: cached,
+      source: 'download',
+      installSource: installSource.name,
+      commit: installStamp.commit,
+      kind: installScriptKind()
+    }
   } catch (err) {
     // The pinned commit may not be fetchable from GitHub -- most commonly a
     // locally-built desktop app stamped to an unpushed HEAD (see
@@ -459,9 +509,10 @@ function buildPosixPinArgs({ installStamp, activeRoot, hermesHome }) {
 
 async function fetchManifest({ scriptPath, installerKind, emit, hermesHome, activeRoot, installStamp }) {
   const isPosix = installerKind === 'posix'
+  const installSource = installSourceFromStamp(installStamp)
   const args = isPosix
-    ? ['--manifest', ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome })]
-    : ['-Manifest', ...buildPinArgs(installStamp)]
+    ? ['--manifest', '--source', installSource.name, ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome })]
+    : ['-Manifest', '-Source', installSource.name, ...buildPinArgs(installStamp)]
   const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
     emit,
     stageName: '__manifest__',
@@ -514,15 +565,18 @@ async function runStage({ scriptPath, installerKind, stage, emit, hermesHome, ac
   emit({ type: 'stage', name: stage.name, state: 'running' })
 
   const isPosix = installerKind === 'posix'
+  const installSource = installSourceFromStamp(installStamp)
   const args = isPosix
     ? [
         '--stage',
         stage.name,
         '--non-interactive',
         '--json',
+        '--source',
+        installSource.name,
         ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome })
       ]
-    : ['-Stage', stage.name, '-NonInteractive', '-Json', ...buildPinArgs(installStamp)]
+    : ['-Stage', stage.name, '-NonInteractive', '-Json', '-Source', installSource.name, ...buildPinArgs(installStamp)]
   const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
     emit,
     stageName: stage.name,
@@ -716,5 +770,6 @@ module.exports = {
   resolveLocalInstallScript,
   resolveInstallScript,
   installedAgentInstallScript,
-  cachedScriptPath
+  cachedScriptPath,
+  installSourceFromStamp
 }

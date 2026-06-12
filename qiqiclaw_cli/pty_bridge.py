@@ -7,41 +7,54 @@ keystrokes can be fed back in.  The only caller today is the
 
 Design constraints:
 
-* **POSIX-only.**  QiQiClaw supports Windows exclusively via WSL, which
-  exposes a native POSIX PTY via ``openpty(3)``.  Native Windows Python
-  has no PTY; :class:`PtyUnavailableError` is raised with a user-readable
-  install/platform message so the dashboard can render a banner instead of
-  crashing.
-* **Zero Node dependency on the server side.**  We use :mod:`ptyprocess`,
-  which is a pure-Python wrapper around the OS calls.  The browser talks
+* **Native PTY per platform.**  POSIX/WSL use :mod:`ptyprocess` over
+  ``openpty(3)``.  Native Windows uses ``pywinpty``'s import module
+  :mod:`winpty`, which wraps ConPTY/winpty.  Missing platform dependencies
+  raise :class:`PtyUnavailableError` with a user-readable install message so
+  the dashboard can render a banner instead of crashing.
+* **Zero Node dependency on the server side.**  POSIX uses :mod:`ptyprocess`;
+  Windows uses :mod:`winpty`.  The browser talks
   to the same ``qiqiclaw --tui`` binary it would launch from the CLI, so
   every TUI feature (slash popover, model picker, tool rows, markdown,
   skin engine, clarify/sudo/approval prompts) ships automatically.
-* **Byte-safe I/O.**  Reads and writes go through the PTY master fd
-  directly — we avoid :class:`ptyprocess.PtyProcessUnicode` because
-  streaming ANSI is inherently byte-oriented and UTF-8 boundaries may land
-  mid-read.
+* **Byte-safe I/O.**  The public bridge interface is bytes.  POSIX reads and
+  writes the PTY master fd directly; Windows converts ``winpty`` string output
+  to UTF-8 bytes for the WebSocket.
 """
 
 from __future__ import annotations
 
 import errno
-import fcntl
 import os
-import select
 import signal
-import struct
 import sys
-import termios
 import time
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
+
+_IS_WINDOWS = sys.platform.startswith("win")
+
+if _IS_WINDOWS:
+    fcntl = None  # type: ignore[assignment]
+    select = None  # type: ignore[assignment]
+    struct = None  # type: ignore[assignment]
+    termios = None  # type: ignore[assignment]
+else:
+    import fcntl
+    import select
+    import struct
+    import termios
 
 try:
     import ptyprocess  # type: ignore
-    _PTY_AVAILABLE = not sys.platform.startswith("win")
 except ImportError:  # pragma: no cover - dev env without ptyprocess
     ptyprocess = None  # type: ignore
-    _PTY_AVAILABLE = False
+
+try:
+    from winpty import PtyProcess as WinPtyProcess  # type: ignore[import-untyped]
+except ImportError:  # pragma: no cover - non-Windows/dev env without pywinpty
+    WinPtyProcess = None  # type: ignore[assignment]
+
+_PTY_AVAILABLE = (WinPtyProcess is not None) if _IS_WINDOWS else (ptyprocess is not None)
 
 
 __all__ = ["PtyBridge", "PtyUnavailableError"]
@@ -50,26 +63,24 @@ __all__ = ["PtyBridge", "PtyUnavailableError"]
 class PtyUnavailableError(RuntimeError):
     """Raised when a PTY cannot be created on this platform.
 
-    Today this means native Windows (no ConPTY bindings) or a dev
-    environment missing the ``ptyprocess`` dependency.  The dashboard
-    surfaces the message to the user as a chat-tab banner.
+    Today this means native Windows without ``pywinpty``/``winpty`` or a
+    POSIX dev environment missing the ``ptyprocess`` dependency.  The
+    dashboard surfaces the message to the user as a chat-tab banner.
     """
 
 
 class PtyBridge:
-    """Thin wrapper around ``ptyprocess.PtyProcess`` for byte streaming.
+    """Thin wrapper around a platform PTY process for byte streaming.
 
     Not thread-safe.  A single bridge is owned by the WebSocket handler
     that spawned it; the reader runs in an executor thread while writes
     happen on the event-loop thread.  Both sides are OK because the
-    kernel PTY is the actual synchronization point — we never call
-    :mod:`ptyprocess` methods concurrently, we only call ``os.read`` and
-    ``os.write`` on the master fd, which is safe.
+    PTY is the actual synchronization point.
     """
 
-    def __init__(self, proc: "ptyprocess.PtyProcess"):  # type: ignore[name-defined]
+    def __init__(self, proc: Any):
         self._proc = proc
-        self._fd: int = proc.fd
+        self._fd: Optional[int] = None if _IS_WINDOWS else int(proc.fd)
         self._closed = False
 
     # -- lifecycle --------------------------------------------------------
@@ -96,10 +107,10 @@ class PtyBridge:
         ordinary exec failures (missing binary, bad cwd, etc.).
         """
         if not _PTY_AVAILABLE:
-            if sys.platform.startswith("win"):
+            if _IS_WINDOWS:
                 raise PtyUnavailableError(
-                    "Pseudo-terminals are unavailable on this platform. "
-                    "QiQiClaw supports Windows only via WSL."
+                    "Pseudo-terminals are unavailable on native Windows because "
+                    "`pywinpty` is not installed. Install with: pip install pywinpty"
                 )
             if ptyprocess is None:
                 raise PtyUnavailableError(
@@ -111,12 +122,22 @@ class PtyBridge:
         # Let caller-supplied env fully override inheritance; if they pass
         # None we inherit the server's env (same semantics as subprocess).
         spawn_env = os.environ.copy() if env is None else env
-        proc = ptyprocess.PtyProcess.spawn(  # type: ignore[union-attr]
-            list(argv),
-            cwd=cwd,
-            env=spawn_env,
-            dimensions=(rows, cols),
-        )
+        if _IS_WINDOWS:
+            if WinPtyProcess is None:  # defensive; covered by _PTY_AVAILABLE above
+                raise PtyUnavailableError("Pseudo-terminals are unavailable.")
+            proc = WinPtyProcess.spawn(
+                list(argv),
+                cwd=cwd,
+                env=spawn_env,
+                dimensions=(rows, cols),
+            )
+        else:
+            proc = ptyprocess.PtyProcess.spawn(  # type: ignore[union-attr]
+                list(argv),
+                cwd=cwd,
+                env=spawn_env,
+                dimensions=(rows, cols),
+            )
         return cls(proc)
 
     @property
@@ -146,6 +167,25 @@ class PtyBridge:
         """
         if self._closed:
             return None
+        if _IS_WINDOWS:
+            try:
+                data = self._proc.read(65536)
+            except EOFError:
+                return None
+            except OSError as exc:
+                if exc.errno in (errno.EIO, errno.EBADF):
+                    return None
+                raise
+            except Exception:
+                return None if not self.is_alive() else b""
+            if data is None:
+                return None
+            if isinstance(data, str):
+                return data.encode("utf-8", errors="replace")
+            return bytes(data) if data else b""
+
+        if self._fd is None:
+            return None
         try:
             readable, _, _ = select.select([self._fd], [], [], timeout)
         except (OSError, ValueError):
@@ -167,6 +207,17 @@ class PtyBridge:
         """Write raw bytes to the PTY master (i.e. the child's stdin)."""
         if self._closed or not data:
             return
+        if _IS_WINDOWS:
+            try:
+                self._proc.write(data)
+            except TypeError:
+                self._proc.write(data.decode("utf-8", errors="replace"))
+            except Exception:
+                return
+            return
+
+        if self._fd is None:
+            return
         # os.write can return a short write under load; loop until drained.
         view = memoryview(data)
         while view:
@@ -181,8 +232,28 @@ class PtyBridge:
             view = view[n:]
 
     def resize(self, cols: int, rows: int) -> None:
-        """Forward a terminal resize to the child via ``TIOCSWINSZ``."""
+        """Forward a terminal resize to the child."""
         if self._closed:
+            return
+        if _IS_WINDOWS:
+            for method_name in ("setwinsize", "resize"):
+                method = getattr(self._proc, method_name, None)
+                if method is None:
+                    continue
+                try:
+                    method(max(1, rows), max(1, cols))
+                    return
+                except TypeError:
+                    try:
+                        method(max(1, cols), max(1, rows))
+                        return
+                    except Exception:
+                        return
+                except Exception:
+                    return
+            return
+
+        if self._fd is None:
             return
         # struct winsize: rows, cols, xpixel, ypixel (all unsigned short)
         winsize = struct.pack("HHHH", max(1, rows), max(1, cols), 0, 0)
@@ -202,6 +273,43 @@ class PtyBridge:
         if self._closed:
             return
         self._closed = True
+
+        if _IS_WINDOWS:
+            for method_name in ("terminate", "kill"):
+                method = getattr(self._proc, method_name, None)
+                if method is None:
+                    continue
+                try:
+                    method()
+                    break
+                except TypeError:
+                    try:
+                        method(signal.SIGTERM)
+                        break
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                try:
+                    if not self._proc.isalive():
+                        break
+                except Exception:
+                    break
+                time.sleep(0.02)
+
+            try:
+                self._proc.close(force=True)
+            except TypeError:
+                try:
+                    self._proc.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return
 
         # SIGHUP is the conventional "your terminal went away" signal.
         # We escalate if the child ignores it.

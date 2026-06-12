@@ -108,9 +108,62 @@ export interface EnvVarInfo {
   url: null | string
 }
 
+export interface CredentialPoolEntry {
+  auth_type?: null | string
+  base_url?: string
+  has_refresh?: boolean
+  id?: null | string
+  index: number
+  label?: null | string
+  last_status?: null | string
+  priority?: number
+  request_count?: number
+  source?: null | string
+  token_preview?: string
+}
+
+export interface CredentialPoolProvider {
+  entries: CredentialPoolEntry[]
+  provider: string
+}
+
+export interface CredentialPoolResponse {
+  providers: CredentialPoolProvider[]
+}
+
+export interface ProviderCatalogEntry {
+  api_key_env_vars: string[]
+  auth_type: string
+  base_url: string
+  base_url_env_var: string
+  credential_count: number
+  key_env: string
+  name: string
+  slug: string
+  source: string
+  supports_model_discovery: boolean
+  verified_model_count: number
+}
+
+export interface ProviderCatalogResponse {
+  providers: ProviderCatalogEntry[]
+}
+
+export interface ModelDiscoveryResponse {
+  base_url: string
+  checked: Array<{ base_url: string; count: number; index: number; message: string; ok: boolean }>
+  message: string
+  models: string[]
+  ok: boolean
+  provider: string
+  saved_count?: number
+  saved_models?: Array<{ base_url: string; credential_index: number; deduped: boolean; id: string; model: string; provider: string }>
+}
+
 export interface MessagingEnvVarInfo {
   advanced: boolean
   description: string
+  is_allowlist?: boolean
   is_password: boolean
   is_set: boolean
   key: string
@@ -136,15 +189,28 @@ export interface MessagingPlatformInfo {
   error_code?: null | string
   error_message?: null | string
   gateway_running: boolean
+  has_interactive_setup?: boolean
   home_channel?: MessagingHomeChannel | null
   id: string
+  install_hint?: string
   name: string
+  setup_instructions?: string[]
+  setup_status?: string
+  source?: string
   state?: null | string
   updated_at?: null | string
 }
 
 export interface MessagingPlatformsResponse {
+  api_server?: { enabled?: boolean; has_key?: boolean; host?: string; port?: number }
+  gateway_pids?: number[]
+  home?: string
   platforms: MessagingPlatformInfo[]
+  runtime_health?: string[]
+  service_installed?: boolean
+  service_running?: boolean
+  supports_launchd?: boolean
+  supports_systemd?: boolean
 }
 
 export interface MessagingPlatformUpdate {
@@ -163,7 +229,7 @@ export interface GatewayReadyPayload {
   skin?: unknown
 }
 
-export interface HermesConfig {
+export interface QiQiClawConfig {
   agent?: {
     reasoning_effort?: string
     personalities?: Record<string, unknown>
@@ -184,10 +250,11 @@ export interface HermesConfig {
   }
 }
 
-export type HermesConfigRecord = Record<string, unknown>
+export type QiQiClawConfigRecord = Record<string, unknown>
 
 export interface ModelInfoResponse {
   auto_context_length?: number
+  base_url?: string
   capabilities?: Record<string, unknown>
   config_context_length?: number
   effective_context_length?: number
@@ -204,6 +271,32 @@ export interface ModelPricing {
   cache: string | null
   /** True when the model costs nothing (free tier eligible). */
   free: boolean
+}
+
+export interface SavedModel {
+  base_url: string
+  credential_index?: number
+  created_at: number
+  id: string
+  last_checked_at?: number
+  model: string
+  name: string
+  provider: string
+  verification_message?: string
+  verification_status?: 'error' | 'ok' | 'unverified' | string
+  verified?: boolean
+}
+
+export interface ModelOptionEntry {
+  base_url?: string
+  credential_index?: number
+  endpoint_host?: string
+  id?: string
+  model: string
+  name?: string
+  provider: string
+  route_label?: string
+  source?: string
 }
 
 export interface ModelOptionProvider {
@@ -235,6 +328,9 @@ export interface ModelOptionProvider {
   /** Per-model option support, keyed by model id (present when the picker
    *  requested capabilities). Lets the UI gate fast/reasoning controls. */
   capabilities?: Record<string, ModelCapabilities>
+  /** Saved model-library metadata keyed by model id. Used by the desktop
+   *  model selector to keep custom/relay/local base_url attached to a pick. */
+  model_entries?: Record<string, ModelOptionEntry>
 }
 
 export interface ModelCapabilities {
@@ -246,6 +342,18 @@ export interface ModelOptionsResponse {
   model?: string
   provider?: string
   providers?: ModelOptionProvider[]
+}
+
+export interface ModelRouteValidationResponse {
+  checked?: Array<{ index: number; message: string; ok: boolean }>
+  credential_index?: number
+  deduped?: boolean
+  library_model?: SavedModel
+  message: string
+  model: string
+  ok: boolean
+  options?: ModelOptionsResponse
+  provider: string
 }
 
 export interface PaginatedSessions {

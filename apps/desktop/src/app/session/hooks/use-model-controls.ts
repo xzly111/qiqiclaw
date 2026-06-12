@@ -8,6 +8,7 @@ import { $currentModel, $currentProvider, setCurrentModel, setCurrentProvider } 
 import type { ModelOptionsResponse } from '@/types/hermes'
 
 interface ModelSelection {
+  base_url?: string
   model: string
   persistGlobal: boolean
   provider: string
@@ -68,10 +69,13 @@ export function useModelControls({ activeSessionId, queryClient, requestGateway 
       updateModelOptionsCache(selection.provider, selection.model, includeGlobal)
 
       try {
+        const effectiveBaseUrl = isCustomProvider(selection.provider) ? selection.base_url : undefined
+
         if (activeSessionId) {
+          const baseUrlArg = effectiveBaseUrl ? ` --base-url ${safeModelArg(effectiveBaseUrl)}` : ''
           await requestGateway('slash.exec', {
             session_id: activeSessionId,
-            command: `/model ${selection.model} --provider ${selection.provider}${selection.persistGlobal ? ' --global' : ''}`
+            command: `/model ${safeModelArg(selection.model)} --provider ${safeModelArg(selection.provider)}${baseUrlArg}${selection.persistGlobal ? ' --global' : ''}`
           })
 
           if (selection.persistGlobal) {
@@ -85,7 +89,7 @@ export function useModelControls({ activeSessionId, queryClient, requestGateway 
           return true
         }
 
-        await setGlobalModel(selection.provider, selection.model)
+        await setGlobalModel(selection.provider, selection.model, effectiveBaseUrl)
         void refreshCurrentModel()
         void queryClient.invalidateQueries({ queryKey: ['model-options'] })
 
@@ -103,4 +107,13 @@ export function useModelControls({ activeSessionId, queryClient, requestGateway 
   )
 
   return { refreshCurrentModel, selectModel, updateModelOptionsCache }
+}
+
+function safeModelArg(value: string): string {
+  return value.trim().replace(/\s+/g, '')
+}
+
+function isCustomProvider(provider: string): boolean {
+  const clean = provider.trim().toLowerCase()
+  return clean === 'custom' || clean.startsWith('custom:')
 }

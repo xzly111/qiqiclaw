@@ -18,7 +18,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Using Hermes',
+      label: 'Using QiQiClaw',
       collapsed: true,
       items: [
         'user-guide/cli',

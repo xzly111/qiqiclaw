@@ -8,7 +8,8 @@ const {
   runBootstrap,
   resolveInstallScript,
   installedAgentInstallScript,
-  cachedScriptPath
+  cachedScriptPath,
+  installSourceFromStamp
 } = require('./bootstrap-runner.cjs')
 
 const SCRIPT_NAME = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
@@ -45,13 +46,27 @@ test('installedAgentInstallScript resolves the installer in the agent checkout',
   try {
     assert.equal(installedAgentInstallScript(home), null, 'absent before the checkout exists')
 
-    const scriptsDir = path.join(home, 'hermes-agent', 'scripts')
+    const scriptsDir = path.join(home, 'qiqiclaw', 'scripts')
     fs.mkdirSync(scriptsDir, { recursive: true })
     const scriptPath = path.join(scriptsDir, SCRIPT_NAME)
     fs.writeFileSync(scriptPath, '#!/bin/sh\necho hi\n')
 
     assert.equal(installedAgentInstallScript(home), scriptPath)
     assert.equal(installedAgentInstallScript(null), null, 'null home -> null')
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('installedAgentInstallScript keeps legacy hermes-agent fallback', () => {
+  const home = mkTmpHome()
+  try {
+    const scriptsDir = path.join(home, 'hermes-agent', 'scripts')
+    fs.mkdirSync(scriptsDir, { recursive: true })
+    const scriptPath = path.join(scriptsDir, SCRIPT_NAME)
+    fs.writeFileSync(scriptPath, '#!/bin/sh\necho legacy\n')
+
+    assert.equal(installedAgentInstallScript(home), scriptPath)
   } finally {
     fs.rmSync(home, { recursive: true, force: true })
   }
@@ -80,12 +95,48 @@ test('resolveInstallScript prefers a cached script without touching the network'
   }
 })
 
+test('installSourceFromStamp maps gitee builds to Gitee raw and clone URLs', () => {
+  const source = installSourceFromStamp({ installSource: 'gitee' })
+
+  assert.equal(source.name, 'gitee')
+  assert.match(source.rawBaseUrl, /gitee\.com\/szd20020329\/qiqiclaw\/raw/)
+  assert.match(source.repoHttps, /gitee\.com\/szd20020329\/qiqiclaw\.git/)
+})
+
+test('resolveInstallScript passes selected source to downloader', async () => {
+  const home = mkTmpHome()
+  try {
+    const commit = 'b'.repeat(40)
+    const calls = []
+    const result = await resolveInstallScript({
+      installStamp: { commit, installSource: 'gitee' },
+      sourceRepoRoot: null,
+      hermesHome: home,
+      emit: () => {},
+      _download: async (_commit, dest, source) => {
+        calls.push({ commit: _commit, dest, source })
+        fs.mkdirSync(path.dirname(dest), { recursive: true })
+        fs.writeFileSync(dest, '#!/bin/sh\necho downloaded\n')
+      }
+    })
+
+    assert.equal(result.source, 'download')
+    assert.equal(result.installSource, 'gitee')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].commit, commit)
+    assert.equal(calls[0].source.name, 'gitee')
+    assert.match(calls[0].source.rawBaseUrl, /gitee\.com/)
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('resolveInstallScript falls back to the installed agent checkout on a 404', async () => {
   const home = mkTmpHome()
   try {
     const commit = 'a'.repeat(40)
     // Seed the installed agent checkout so the fallback has something to resolve.
-    const scriptsDir = path.join(home, 'hermes-agent', 'scripts')
+    const scriptsDir = path.join(home, 'qiqiclaw', 'scripts')
     fs.mkdirSync(scriptsDir, { recursive: true })
     const installed = path.join(scriptsDir, SCRIPT_NAME)
     fs.writeFileSync(installed, '#!/bin/sh\necho fallback\n')

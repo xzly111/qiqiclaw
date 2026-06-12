@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useI18n } from '@/i18n'
 import type { ModelOptionProvider, ModelOptionsResponse, ModelPricing } from '@/types/hermes'
 
-import type { HermesGateway } from '../hermes'
+import type { QiQiClawGateway } from '../hermes'
 import { getGlobalModelOptions } from '../hermes'
 import { cn } from '../lib/utils'
 import { startManualOnboarding } from '../store/onboarding'
@@ -19,11 +19,11 @@ import { Skeleton } from './ui/skeleton'
 interface ModelPickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  gw?: HermesGateway
+  gw?: QiQiClawGateway
   sessionId?: string | null
   currentModel: string
   currentProvider: string
-  onSelect: (selection: { provider: string; model: string; persistGlobal: boolean }) => void
+  onSelect: (selection: { base_url?: string; provider: string; model: string; persistGlobal: boolean }) => void
   /**
    * Optional class to apply to DialogContent. Use to override z-index when
    * stacking the picker on top of another fixed overlay (e.g. the desktop
@@ -79,9 +79,11 @@ export function ModelPickerDialog({
     : null
 
   const selectModel = (provider: ModelOptionProvider, model: string) => {
+    const entry = provider.model_entries?.[model]
     onSelect({
       provider: provider.slug,
       model,
+      ...(entry?.base_url ? { base_url: entry.base_url } : {}),
       persistGlobal: persistGlobal || !sessionId
     })
     onOpenChange(false)
@@ -196,7 +198,9 @@ function ModelResults({
     !q ||
     model.toLowerCase().includes(q) ||
     provider.name.toLowerCase().includes(q) ||
-    provider.slug.toLowerCase().includes(q)
+    provider.slug.toLowerCase().includes(q) ||
+    (provider.model_entries?.[model]?.route_label ?? '').toLowerCase().includes(q) ||
+    (provider.model_entries?.[model]?.endpoint_host ?? '').toLowerCase().includes(q)
 
   // Only configured providers (those with curated models) are selectable
   // here. Switching to a NOT-yet-configured provider goes through the
@@ -228,6 +232,7 @@ function ModelResults({
               const isCurrent = model === currentModel && provider.slug === currentProvider
               const price = provider.pricing?.[model]
               const locked = unavailable.has(model)
+              const routeMeta = modelRouteMeta(provider, model)
 
               return (
                 <CommandItem
@@ -246,7 +251,10 @@ function ModelResults({
                   }}
                   value={`${provider.slug}:${model}`}
                 >
-                  <span className="min-w-0 flex-1 truncate">{model}</span>
+                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span className="truncate">{model}</span>
+                    {routeMeta ? <span className="truncate text-[0.66rem] text-muted-foreground">{routeMeta}</span> : null}
+                  </span>
                   {locked && <span className="shrink-0 text-[0.62rem] uppercase tracking-wide opacity-80">{copy.pro}</span>}
                   <ModelPrice isCurrent={isCurrent} price={price} />
                 </CommandItem>
@@ -262,6 +270,11 @@ function ModelResults({
       })}
     </>
   )
+}
+
+function modelRouteMeta(provider: ModelOptionProvider, model: string): string {
+  const entry = provider.model_entries?.[model]
+  return entry?.route_label || entry?.endpoint_host || provider.slug
 }
 
 // Compact In/Out $/Mtok price tag, mirroring the CLI picker's price columns.

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
+import { desktopBridge } from '@/lib/desktop-bridge'
 import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Sparkles } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import {
@@ -19,7 +20,7 @@ import {
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 import { UninstallSection } from './uninstall-section'
 
-const RELEASE_NOTES_URL = 'https://github.com/AaronWong1999/qiqiclaw/releases'
+const RELEASE_NOTES_URL = 'https://github.com/xzly111/qiqiclaw/releases'
 
 function relativeTime(ms: number | undefined, a: Translations['settings']['about']) {
   if (!ms) {
@@ -151,7 +152,7 @@ export function AboutSettings() {
                 href={RELEASE_NOTES_URL}
                 onClick={event => {
                   event.preventDefault()
-                  void window.hermesDesktop?.openExternal?.(RELEASE_NOTES_URL)
+                  void desktopBridge()?.openExternal?.(RELEASE_NOTES_URL)
                 }}
                 rel="noreferrer"
                 target="_blank"

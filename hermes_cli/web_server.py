@@ -32,6 +32,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -612,6 +613,17 @@ class EnvVarDelete(BaseModel):
 
 class EnvVarReveal(BaseModel):
     key: str
+
+
+class SavedModelUpdate(BaseModel):
+    name: str
+    provider: str
+    model: str
+    base_url: str = ""
+
+
+class SavedModelCreate(SavedModelUpdate):
+    api_key: Optional[str] = None
 
 
 class MessagingPlatformUpdate(BaseModel):
@@ -1416,7 +1428,7 @@ async def update_hermes():
 
 @app.get("/api/hermes/update/check")
 async def check_hermes_update(force: bool = False):
-    """Report whether a Hermes update is available, without applying it.
+    """Report whether a QIQI-Claw update is available, without applying it.
 
     Powers the dashboard's "check before you update" flow: the System page
     shows the commit-behind count and asks the user to confirm before
@@ -2120,6 +2132,156 @@ _EMPTY_MODEL_INFO: dict = {
 }
 
 
+def _models_library_path() -> Path:
+    return get_hermes_home() / "models.json"
+
+
+def _read_models_library() -> List[Dict[str, Any]]:
+    path = _models_library_path()
+    try:
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    models: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        model = str(item.get("model") or "").strip()
+        provider = str(item.get("provider") or "").strip().lower()
+        if not model or not provider:
+            continue
+        name = str(item.get("name") or model).strip() or model
+        base_url = str(item.get("base_url") or item.get("baseUrl") or "").strip()
+        entry_id = str(item.get("id") or uuid.uuid4().hex).strip()
+        created_at = item.get("created_at", item.get("createdAt", int(time.time() * 1000)))
+        try:
+            created_at = int(created_at)
+        except Exception:
+            created_at = int(time.time() * 1000)
+        models.append({
+            "id": entry_id,
+            "name": name,
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+            "created_at": created_at,
+        })
+    return models
+
+
+def _write_models_library(models: List[Dict[str, Any]]) -> None:
+    path = _models_library_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(models, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _env_key_for_model_library_url(raw_url: str) -> str:
+    url = (raw_url or "").strip()
+    mappings = [
+        (r"openrouter\.ai", "OPENROUTER_API_KEY"),
+        (r"anthropic\.com", "ANTHROPIC_API_KEY"),
+        (r"openai\.com", "OPENAI_API_KEY"),
+        (r"xiaomimimo\.com", "XIAOMI_API_KEY"),
+        (r"tokenhub\.tencentmaas\.com", "TOKENHUB_API_KEY"),
+        (r"integrate\.api\.nvidia\.com", "NVIDIA_API_KEY"),
+        (r"api\.githubcopilot\.com", "COPILOT_GITHUB_TOKEN"),
+        (r"huggingface\.co", "HF_TOKEN"),
+        (r"generativelanguage\.googleapis\.com", "GOOGLE_API_KEY"),
+        (r"api\.groq\.com", "GROQ_API_KEY"),
+        (r"api\.deepseek\.com", "DEEPSEEK_API_KEY"),
+        (r"api\.x\.ai", "XAI_API_KEY"),
+        (r"api\.z\.ai", "GLM_API_KEY"),
+        (r"api\.moonshot\.ai", "KIMI_API_KEY"),
+        (r"api\.moonshot\.cn", "KIMI_CN_API_KEY"),
+        (r"api\.stepfun\.ai", "STEPFUN_API_KEY"),
+        (r"api\.minimax\.io", "MINIMAX_API_KEY"),
+        (r"api\.minimaxi\.com", "MINIMAX_CN_API_KEY"),
+        (r"dashscope.*aliyuncs\.com", "DASHSCOPE_API_KEY"),
+        (r"ollama\.com", "OLLAMA_API_KEY"),
+        (r"api\.arcee\.ai", "ARCEEAI_API_KEY"),
+        (r"api\.gmi-serving\.com", "GMI_API_KEY"),
+        (r"api\.kilo\.ai", "KILOCODE_API_KEY"),
+        (r"opencode\.ai/zen/go", "OPENCODE_GO_API_KEY"),
+        (r"opencode\.ai/zen", "OPENCODE_ZEN_API_KEY"),
+        (r"ai-gateway\.vercel\.sh", "AI_GATEWAY_API_KEY"),
+        (r"api\.together\.xyz", "TOGETHER_API_KEY"),
+        (r"api\.fireworks\.ai", "FIREWORKS_API_KEY"),
+        (r"api\.cerebras\.ai", "CEREBRAS_API_KEY"),
+        (r"api\.mistral\.ai", "MISTRAL_API_KEY"),
+        (r"api\.perplexity\.ai", "PERPLEXITY_API_KEY"),
+    ]
+    for pattern, key in mappings:
+        if re.search(pattern, url, re.IGNORECASE):
+            return key
+    return "CUSTOM_API_KEY"
+
+
+def _merge_model_library_into_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    models = _read_models_library()
+    if not models:
+        return payload
+
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        providers = []
+        payload["providers"] = providers
+
+    rows_by_slug: Dict[str, Dict[str, Any]] = {
+        str(row.get("slug") or "").lower(): row
+        for row in providers
+        if isinstance(row, dict) and row.get("slug")
+    }
+
+    for entry in models:
+        provider = entry["provider"]
+        row = rows_by_slug.get(provider)
+        if row is None:
+            row = {
+                "slug": provider,
+                "name": "OpenAI 兼容 / 中转站 / 本地" if provider == "custom" else provider,
+                "is_current": provider == str(payload.get("provider") or "").lower(),
+                "is_user_defined": True,
+                "models": [],
+                "total_models": 0,
+                "authenticated": True,
+                "auth_type": "api_key",
+                "key_env": "CUSTOM_API_KEY" if provider == "custom" else "",
+                "source": "models_library",
+            }
+            providers.append(row)
+            rows_by_slug[provider] = row
+
+        row_models = row.get("models")
+        if not isinstance(row_models, list):
+            row_models = []
+            row["models"] = row_models
+        if entry["model"] not in row_models:
+            row_models.append(entry["model"])
+
+        model_entries = row.get("model_entries")
+        if not isinstance(model_entries, dict):
+            model_entries = {}
+            row["model_entries"] = model_entries
+        existing = model_entries.get(entry["model"])
+        if not isinstance(existing, dict) or entry.get("base_url"):
+            model_entries[entry["model"]] = {
+                "id": entry["id"],
+                "name": entry["name"],
+                "provider": provider,
+                "model": entry["model"],
+                "base_url": entry.get("base_url", ""),
+                "source": "models_library",
+            }
+        row["total_models"] = max(int(row.get("total_models") or 0), len(row_models))
+
+    return payload
+
+
 @app.get("/api/model/info")
 def get_model_info():
     """Return resolved model metadata for the currently configured model.
@@ -2187,6 +2349,7 @@ def get_model_info():
         return {
             "model": model_name,
             "provider": provider,
+            "base_url": base_url,
             "auto_context_length": auto_ctx,
             "config_context_length": config_ctx_int,
             "effective_context_length": effective_ctx,
@@ -2240,7 +2403,7 @@ def get_model_options():
         # come back as skeleton rows carrying `authenticated=False` +
         # `auth_type`/`key_env`/`warning` so the GUI can render a setup
         # affordance instead of hiding the provider entirely.
-        return build_models_payload(
+        payload = build_models_payload(
             load_picker_context(),
             max_models=50,
             include_unconfigured=True,
@@ -2249,9 +2412,92 @@ def get_model_options():
             pricing=True,
             capabilities=True,
         )
+        return _merge_model_library_into_options(payload)
     except Exception:
         _log.exception("GET /api/model/options failed")
         raise HTTPException(status_code=500, detail="Failed to list model options")
+
+
+@app.get("/api/models/library")
+def list_saved_models():
+    return {"models": _read_models_library()}
+
+
+@app.post("/api/models/library")
+async def add_saved_model(body: SavedModelCreate):
+    model = (body.model or "").strip()
+    provider = (body.provider or "").strip().lower()
+    name = (body.name or "").strip() or model
+    base_url = (body.base_url or "").strip()
+    if not model or not provider:
+        raise HTTPException(status_code=400, detail="provider and model are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom models")
+
+    models = _read_models_library()
+    for entry in models:
+        if (
+            entry.get("provider") == provider
+            and entry.get("model") == model
+            and (entry.get("base_url") or "") == base_url
+        ):
+            return {"ok": True, "model": entry, "deduped": True}
+
+    entry = {
+        "id": uuid.uuid4().hex,
+        "name": name,
+        "provider": provider,
+        "model": model,
+        "base_url": base_url,
+        "created_at": int(time.time() * 1000),
+    }
+    models.append(entry)
+    _write_models_library(models)
+
+    api_key = (body.api_key or "").strip()
+    if api_key:
+        try:
+            save_env_value(_env_key_for_model_library_url(base_url), api_key)
+        except Exception:
+            _log.exception("saving model-library API key failed")
+
+    return {"ok": True, "model": entry, "deduped": False}
+
+
+@app.put("/api/models/library/{model_id}")
+async def update_saved_model(model_id: str, body: SavedModelUpdate):
+    model = (body.model or "").strip()
+    provider = (body.provider or "").strip().lower()
+    name = (body.name or "").strip() or model
+    base_url = (body.base_url or "").strip()
+    if not model or not provider:
+        raise HTTPException(status_code=400, detail="provider and model are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom models")
+
+    models = _read_models_library()
+    for entry in models:
+        if entry.get("id") != model_id:
+            continue
+        entry.update({
+            "name": name,
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+        })
+        _write_models_library(models)
+        return {"ok": True, "model": entry}
+    raise HTTPException(status_code=404, detail="Model not found")
+
+
+@app.delete("/api/models/library/{model_id}")
+async def remove_saved_model(model_id: str):
+    models = _read_models_library()
+    kept = [entry for entry in models if entry.get("id") != model_id]
+    if len(kept) == len(models):
+        raise HTTPException(status_code=404, detail="Model not found")
+    _write_models_library(kept)
+    return {"ok": True}
 
 
 @app.get("/api/langgraph/status")
@@ -6493,6 +6739,9 @@ class CredentialPoolAdd(BaseModel):
     # an interactive browser flow that doesn't belong in a single POST).
     api_key: str
     label: Optional[str] = None
+    # OpenAI-compatible relay/local endpoint URL. This is required for
+    # provider="custom" pools and optional for provider-specific gateway hosts.
+    base_url: Optional[str] = None
 
 
 def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
@@ -6511,6 +6760,7 @@ def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
         "last_status": getattr(entry, "last_status", None),
         "request_count": getattr(entry, "request_count", 0),
         "token_preview": redact_key(token) if token else "",
+        "base_url": getattr(entry, "base_url", None) or "",
         "has_refresh": bool(getattr(entry, "refresh_token", None)),
     }
 
@@ -6554,8 +6804,11 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
 
     provider = (body.provider or "").strip().lower()
     api_key = (body.api_key or "").strip()
+    base_url = (body.base_url or "").strip()
     if not provider or not api_key:
         raise HTTPException(status_code=400, detail="provider and api_key are required")
+    if provider == "custom" and not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required for custom provider credentials")
 
     try:
         pool = load_pool(provider)
@@ -6568,6 +6821,7 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
             priority=0,
             source=SOURCE_MANUAL,
             access_token=api_key,
+            base_url=base_url or None,
         )
         pool.add_entry(entry)
     except Exception as exc:
@@ -8742,7 +8996,7 @@ async def pty_ws(ws: WebSocket) -> None:
         await ws.send_text(
             "\r\n\x1b[31mChat unavailable: the embedded terminal requires a "
             "POSIX PTY, which native Windows Python doesn't provide.\x1b[0m\r\n"
-            "\x1b[33mInstall Hermes inside WSL2 to use the dashboard's /chat "
+            "\x1b[33mInstall QIQI-Claw inside WSL2 to use the dashboard's /chat "
             "tab — the rest of the dashboard works here.\x1b[0m\r\n"
         )
         await ws.close(code=1011)

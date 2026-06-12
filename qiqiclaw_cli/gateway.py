@@ -4065,7 +4065,7 @@ def _setup_signal():
         print_info("    Docker: bbernhard/signal-cli-rest-api")
         print()
         print_info("  After installing, link your account and start the daemon:")
-        print_info("    signal-cli link -n \"HermesAgent\"")
+        print_info("    signal-cli link -n \"QIQI-Claw\"")
         print_info("    signal-cli --account +YOURNUMBER daemon --http 127.0.0.1:8080")
         print()
 
@@ -4561,6 +4561,14 @@ def _gateway_command_inner(args):
             print()
             print("或直接运行网关: qiqiclaw gateway run")
             sys.exit(0)
+        elif is_windows():
+            pid = _start_detached_gateway_run()
+            if not pid or not _wait_for_manual_gateway_start(pid):
+                print_error("Gateway process exited before it became ready.")
+                print_info(f"Logs: {get_qiqiclaw_home()}/logs/gateway.log")
+                sys.exit(1)
+            print_success(f"Gateway started in background (PID: {pid})")
+            print_info(f"Logs: {get_qiqiclaw_home()}/logs/gateway.log")
         else:
             print("Not supported on this platform.")
             sys.exit(1)
