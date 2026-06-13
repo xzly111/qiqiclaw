@@ -6255,6 +6255,20 @@ def _mark_skip_upstream_prompt():
         pass
 
 
+def _is_noninteractive_update(args=None, *, gateway_mode: bool = False) -> bool:
+    """Return True when update must not prompt on stdin."""
+    if gateway_mode:
+        return True
+    if args is not None and bool(getattr(args, "yes", False)):
+        return True
+    if os.environ.get("QIQICLAW_DESKTOP_UPDATE") == "1":
+        return True
+    try:
+        return not (sys.stdin.isatty() and sys.stdout.isatty())
+    except Exception:
+        return True
+
+
 def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
     """Attempt to push updated main to origin (sync fork).
 
@@ -6272,7 +6286,12 @@ def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
         return False
 
 
-def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
+def _sync_with_upstream_if_needed(
+    git_cmd: list[str],
+    cwd: Path,
+    *,
+    noninteractive: bool = False,
+) -> None:
     """Check if fork is behind upstream and sync if safe.
 
     This implements the fork upstream sync logic:
@@ -6286,6 +6305,11 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
     if not has_upstream:
         # Check if user previously declined
         if _should_skip_upstream_prompt():
+            return
+
+        if noninteractive:
+            print()
+            print("ℹ No upstream remote configured. Skipping upstream sync in non-interactive update mode.")
             return
 
         # Ask user if they want to add upstream
@@ -6965,6 +6989,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         else None
     )
     assume_yes = bool(getattr(args, "yes", False))
+    noninteractive_update = _is_noninteractive_update(args, gateway_mode=gateway_mode)
 
     print("Q 正在更新 QiQiClaw...")
     print()
@@ -7226,7 +7251,11 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Fork upstream sync logic (only for main branch on forks)
         if is_fork and branch == "main":
-            _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
+            _sync_with_upstream_if_needed(
+                git_cmd,
+                PROJECT_ROOT,
+                noninteractive=noninteractive_update,
+            )
 
         update_env = _update_dependency_env(origin_url)
 

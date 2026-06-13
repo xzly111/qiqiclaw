@@ -35,6 +35,7 @@ test('mirrorEnvForInstallSource applies domestic mirrors for Gitee builds', () =
   assert.match(env.UV_INDEX_URL, /tuna\.tsinghua\.edu\.cn/)
   assert.match(env.npm_config_registry, /npmmirror\.com/)
   assert.match(env.QIQICLAW_NODE_DIST_BASE_URL, /npmmirror\.com/)
+  assert.equal(env.QIQICLAW_DESKTOP_UPDATE, '1')
 })
 
 test('buildUpdateEnv forces source and mirrors over stale process values', () => {
@@ -50,6 +51,7 @@ test('buildUpdateEnv forces source and mirrors over stale process values', () =>
   })
   assert.equal(env.QIQICLAW_INSTALL_SOURCE, 'gitee')
   assert.equal(env.HERMES_INSTALL_SOURCE, 'gitee')
+  assert.equal(env.QIQICLAW_DESKTOP_UPDATE, '1')
   assert.equal(env.HERMES_HOME, '/tmp/qiqiclaw')
   assert.match(env.PIP_INDEX_URL, /tuna\.tsinghua\.edu\.cn/)
   assert.equal(env.QIQICLAW_UPDATE_TMPDIR, '/home/me/.qiqiclaw/tmp')

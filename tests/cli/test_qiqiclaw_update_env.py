@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from qiqiclaw_cli import main as qiqiclaw_main
 
@@ -20,6 +21,26 @@ def test_update_dependency_env_detects_gitee_origin_and_sets_domestic_mirrors():
     assert env["TMPDIR"] == env["QIQICLAW_UPDATE_TMPDIR"]
     assert env["npm_config_cache"].endswith("/.qiqiclaw/tmp/npm-cache")
     assert env["PATH"] == "/usr/bin"
+
+
+def test_noninteractive_update_detects_desktop_update_env(monkeypatch):
+    monkeypatch.setenv("QIQICLAW_DESKTOP_UPDATE", "1")
+
+    assert qiqiclaw_main._is_noninteractive_update(SimpleNamespace(yes=False)) is True
+
+
+def test_sync_upstream_skips_prompt_when_noninteractive(capsys):
+    with patch.object(qiqiclaw_main, "_has_upstream_remote", return_value=False), \
+         patch.object(qiqiclaw_main, "_should_skip_upstream_prompt", return_value=False), \
+         patch("builtins.input") as input_mock:
+        qiqiclaw_main._sync_with_upstream_if_needed(
+            ["git"],
+            qiqiclaw_main.PROJECT_ROOT,
+            noninteractive=True,
+        )
+
+    input_mock.assert_not_called()
+    assert "non-interactive update mode" in capsys.readouterr().out
 
 
 def test_update_dependency_env_defaults_to_github_without_mirror_overrides():

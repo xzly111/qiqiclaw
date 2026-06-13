@@ -29,7 +29,8 @@ function mirrorEnvForInstallSource(installSource) {
   const source = normalizeInstallSource(installSource) || DEFAULT_INSTALL_SOURCE
   const env = {
     QIQICLAW_INSTALL_SOURCE: source,
-    HERMES_INSTALL_SOURCE: source
+    HERMES_INSTALL_SOURCE: source,
+    QIQICLAW_DESKTOP_UPDATE: '1'
   }
 
   if (source === 'gitee') {
