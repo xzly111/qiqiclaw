@@ -551,7 +551,7 @@ class OrchestrateRunRequest(BaseModel):
 
 class CredentialPoolAdd(BaseModel):
     provider: str
-    api_key: str
+    api_key: str = ""
     label: Optional[str] = None
     base_url: Optional[str] = None
 
@@ -1338,15 +1338,22 @@ def _credential_entry_from_provider_env(provider: str, model_entry: Dict[str, An
         from qiqiclaw_cli.config import get_env_value
 
         api_key = (get_env_value("CUSTOM_API_KEY") or "").strip()
-        if not api_key:
+        resolved_base_url = base_url or (get_env_value("OPENAI_BASE_URL") or get_env_value("CUSTOM_BASE_URL") or "").strip()
+        if not api_key and not resolved_base_url:
             return None
+        if not api_key:
+            source = "custom:base_url"
+            label = "custom endpoint"
+        else:
+            source = "env:CUSTOM_API_KEY"
+            label = "setup/env CUSTOM_API_KEY"
         return {
             "id": uuid.uuid4().hex,
-            "label": "setup/env CUSTOM_API_KEY",
-            "source": "env:CUSTOM_API_KEY",
+            "label": label,
+            "source": source,
             "auth_type": "api_key",
             "access_token": api_key,
-            "base_url": base_url or (get_env_value("OPENAI_BASE_URL") or get_env_value("CUSTOM_BASE_URL") or "").strip(),
+            "base_url": resolved_base_url,
             "priority": 50,
             "request_count": 0,
         }
@@ -1486,15 +1493,12 @@ def _discover_models_with_key(base_url: str, api_key: str) -> Tuple[bool, str, L
     if not normalized:
         return False, "Base URL 为空，无法发现模型", []
     url = normalized.rstrip("/") + "/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
         with httpx.Client(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
-            resp = client.get(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Accept": "application/json",
-                },
-            )
+            resp = client.get(url, headers=headers)
     except Exception as exc:
         return False, f"请求失败: {exc}", []
     models = _parse_model_ids(resp)
@@ -1560,7 +1564,7 @@ def _discover_models_from_pool(provider: str, base_url: str = "", credential_ind
             or ""
         ).strip()
         entry_base_url = _resolve_model_route_base_url(provider, probe_entry, credential)
-        if not api_key:
+        if not api_key and provider != "custom":
             ok, message, found = False, "凭证缺少 access_token", []
         else:
             ok, message, found = _discover_models_with_key(entry_base_url, api_key)
@@ -1662,7 +1666,7 @@ def _validate_model_entry_with_pool(
             or ""
         ).strip()
         base_url = _resolve_model_route_base_url(provider, model_entry, credential)
-        if not api_key:
+        if not api_key and provider != "custom":
             ok, message = False, "凭证缺少 access_token"
         else:
             ok, message = _openai_compatible_chat_probe(base_url, api_key, model)
@@ -1780,15 +1784,17 @@ def _openai_compatible_chat_probe(base_url: str, api_key: str, model: str) -> Tu
         "temperature": 0,
         "max_tokens": 128,
     }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0), follow_redirects=True) as client:
             response = client.post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
+                headers=headers,
                 json=payload,
             )
     except Exception as exc:
@@ -2540,10 +2546,10 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
     provider = (body.provider or "").strip().lower()
     api_key = (body.api_key or "").strip()
     base_url = (body.base_url or "").strip()
-    if not provider or not api_key:
-        raise HTTPException(status_code=400, detail="provider and api_key are required")
     if provider == "custom" and not base_url:
         raise HTTPException(status_code=400, detail="base_url is required for custom provider credentials")
+    if not provider or (provider != "custom" and not api_key):
+        raise HTTPException(status_code=400, detail="provider and api_key are required")
 
     entries = read_credential_pool(provider)
     if not isinstance(entries, list):

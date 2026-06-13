@@ -359,7 +359,7 @@ function Header() {
     <div className="bg-(--ui-chat-bubble-background) px-5 pt-5 pb-1">
       <h2 className="text-[0.9375rem] font-semibold tracking-tight">配置 QiQiClaw API 提供商</h2>
       <p className="mt-1 max-w-xl text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">
-        选择 LLM 提供商，输入 API Key，验证模型后进入桌面端。
+        选择 LLM 提供商，填写所需连接信息，验证模型后进入桌面端。
       </p>
     </div>
   )
@@ -407,7 +407,7 @@ function OnboardingApiWizard({
         setProviderSlug(first?.slug ?? '')
         setBaseUrl(first?.slug === 'custom' ? '' : first?.base_url || '')
         setStatus(rows.length > 0 ? 'idle' : 'error')
-        setMessage(rows.length > 0 ? '请选择提供商并输入 API Key，然后发现模型。' : '未能读取可用的 API Key 提供商。')
+        setMessage(rows.length > 0 ? '请选择提供商并填写连接信息，然后发现模型。' : '未能读取可用的 API Key 提供商。')
       } catch (error) {
         if (!cancelled) {
           setStatus('error')
@@ -423,7 +423,8 @@ function OnboardingApiWizard({
 
   const selectedProvider = providers.find(provider => provider.slug === providerSlug) ?? null
   const needsBaseUrl = isCustomProvider(selectedProvider)
-  const canDiscover = Boolean(selectedProvider && apiKey.trim() && (!needsBaseUrl || baseUrl.trim()))
+  const hasRequiredCredentials = needsBaseUrl ? Boolean(baseUrl.trim()) : Boolean(apiKey.trim())
+  const canDiscover = Boolean(selectedProvider && hasRequiredCredentials)
   const canValidate = Boolean(canDiscover && model.trim())
   const busy = status === 'loading' || status === 'discovering' || status === 'validating'
   const modelOptions = [...new Set([...models, model].filter(Boolean))]
@@ -437,7 +438,7 @@ function OnboardingApiWizard({
     setModel('')
     setModels([])
     setStatus('idle')
-    setMessage('已切换提供商，请输入 API Key 后发现模型。')
+    setMessage(next?.slug === 'custom' ? '已切换到 OpenAI 兼容 / 中转站 / 本地，请填写 Base URL 后发现模型。' : '已切换提供商，请输入 API Key 后发现模型。')
   }
 
   const discover = async () => {
@@ -446,7 +447,7 @@ function OnboardingApiWizard({
     }
 
     setStatus('discovering')
-    setMessage('正在保存凭证并发现模型。')
+    setMessage(needsBaseUrl && !apiKey.trim() ? '正在连接自定义端点并发现模型。' : '正在保存凭证并发现模型。')
     const result = await discoverOnboardingProviderModels({
       provider: selectedProvider,
       apiKey,
@@ -533,7 +534,7 @@ function OnboardingApiWizard({
         ) : null}
 
         <label className="grid gap-1 text-xs font-medium">
-          API Key
+          {needsBaseUrl ? 'API Key（可选）' : 'API Key'}
           <Input
             autoComplete="off"
             className="font-mono"
@@ -547,10 +548,15 @@ function OnboardingApiWizard({
                 void discover()
               }
             }}
-            placeholder={selectedProvider?.key_env || '粘贴 API Key'}
+            placeholder={needsBaseUrl ? '本地服务可留空；中转站按需填写' : selectedProvider?.key_env || '粘贴 API Key'}
             type="password"
             value={apiKey}
           />
+          {needsBaseUrl ? (
+            <span className="text-[0.6875rem] font-normal leading-4 text-muted-foreground">
+              Base URL 必填；API Key 仅在中转站或远程兼容服务要求鉴权时填写。
+            </span>
+          ) : null}
         </label>
 
         <div className="grid gap-1 text-xs font-medium">

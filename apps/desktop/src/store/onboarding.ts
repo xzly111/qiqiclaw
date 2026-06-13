@@ -496,25 +496,28 @@ export async function discoverOnboardingProviderModels(input: {
   const apiKey = input.apiKey.trim()
   const baseUrl = input.baseUrl?.trim() ?? ''
   const providerSlug = input.provider.slug
+  const isCustom = providerSlug === 'custom'
 
-  if (!providerSlug || !apiKey) {
+  if (!providerSlug || (!isCustom && !apiKey)) {
     return { ok: false, credentialSaved: false, message: '请选择提供商并输入 API Key。', models: [] }
   }
 
-  if (providerSlug === 'custom' && !baseUrl) {
+  if (isCustom && !baseUrl) {
     return { ok: false, credentialSaved: false, message: 'OpenAI 兼容 / 中转站 / 本地需要填写 Base URL。', models: [] }
   }
 
   let credentialSaved = false
 
   try {
-    await addCredentialPoolEntry({
-      provider: providerSlug,
-      api_key: apiKey,
-      ...(baseUrl ? { base_url: baseUrl } : {}),
-      label: 'desktop onboarding'
-    })
-    credentialSaved = true
+    if (apiKey || !isCustom) {
+      await addCredentialPoolEntry({
+        provider: providerSlug,
+        api_key: apiKey,
+        ...(baseUrl ? { base_url: baseUrl } : {}),
+        label: 'desktop onboarding'
+      })
+      credentialSaved = true
+    }
 
     const discovered = await discoverProviderModels({
       provider: providerSlug,
@@ -550,17 +553,18 @@ export async function completeOnboardingWithVerifiedApiKey(
   const baseUrl = input.baseUrl?.trim() ?? ''
   const providerSlug = input.provider.slug
   const providerLabel = input.provider.name || providerSlug
+  const isCustom = providerSlug === 'custom'
 
-  if (!providerSlug || !apiKey || !model) {
+  if (!providerSlug || !model || (!isCustom && !apiKey)) {
     return { ok: false, message: '请选择提供商，输入 API Key，并选择或填写模型。' }
   }
 
-  if (providerSlug === 'custom' && !baseUrl) {
+  if (isCustom && !baseUrl) {
     return { ok: false, message: 'OpenAI 兼容 / 中转站 / 本地需要填写 Base URL。' }
   }
 
   try {
-    if (!input.credentialAlreadySaved) {
+    if (!input.credentialAlreadySaved && (apiKey || !isCustom)) {
       await addCredentialPoolEntry({
         provider: providerSlug,
         api_key: apiKey,

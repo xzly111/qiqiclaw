@@ -410,7 +410,7 @@ export function discoverProviderModels(body: {
 }
 
 export function addCredentialPoolEntry(body: {
-  api_key: string
+  api_key?: string
   base_url?: string
   label?: string
   provider: string

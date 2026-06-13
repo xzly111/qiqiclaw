@@ -4,6 +4,8 @@ import {
   $desktopOnboarding,
   type DesktopOnboardingState,
   type OnboardingContext,
+  completeOnboardingWithVerifiedApiKey,
+  discoverOnboardingProviderModels,
   refreshOnboarding,
   requestDesktopOnboarding,
   saveOnboardingLocalEndpoint,
@@ -221,5 +223,121 @@ describe('saveOnboardingLocalEndpoint', () => {
     expect(result.ok).toBe(false)
     expect(result.message).toContain('No provider can serve the selected model.')
     expect($desktopOnboarding.get().configured).not.toBe(true)
+  })
+})
+
+describe('custom provider onboarding', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    $desktopOnboarding.set(baseState())
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+    $desktopOnboarding.set(baseState())
+    vi.restoreAllMocks()
+  })
+
+  const customProvider = {
+    api_key_env_vars: ['CUSTOM_API_KEY'],
+    auth_type: 'api_key',
+    base_url: '',
+    base_url_env_var: 'OPENAI_BASE_URL',
+    credential_count: 0,
+    key_env: 'CUSTOM_API_KEY',
+    name: 'OpenAI 兼容 / 中转站 / 本地',
+    slug: 'custom',
+    source: 'custom',
+    supports_model_discovery: true,
+    verified_model_count: 0
+  }
+
+  function readyGateway(): OnboardingContext['requestGateway'] {
+    return async method => {
+      if (method === 'reload.env') {
+        return {} as never
+      }
+
+      if (method === 'setup.status') {
+        return { provider_configured: true } as never
+      }
+
+      if (method === 'setup.runtime_check') {
+        return { ok: true } as never
+      }
+
+      throw new Error(`unexpected gateway method: ${method}`)
+    }
+  }
+
+  it('discovers custom/local models with Base URL only and no credential write', async () => {
+    const calls: { body?: unknown; path: string }[] = []
+    installApiMock(async ({ body, path }: { body?: unknown; path: string }) => {
+      calls.push({ body, path })
+
+      if (path === '/api/models/discover') {
+        return { ok: true, provider: 'custom', base_url: 'http://127.0.0.1:8000/v1', models: ['local-model'], checked: [], message: 'ok' }
+      }
+
+      throw new Error(`unexpected api path: ${path}`)
+    })
+
+    const result = await discoverOnboardingProviderModels({
+      provider: customProvider,
+      apiKey: '',
+      baseUrl: 'http://127.0.0.1:8000/v1'
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.credentialSaved).toBe(false)
+    expect(result.models).toEqual(['local-model'])
+    expect(calls).toEqual([
+      {
+        path: '/api/models/discover',
+        body: { provider: 'custom', base_url: 'http://127.0.0.1:8000/v1' }
+      }
+    ])
+  })
+
+  it('validates and assigns a custom/local model with Base URL only', async () => {
+    const calls: { body?: unknown; path: string }[] = []
+    installApiMock(async ({ body, path }: { body?: unknown; path: string }) => {
+      calls.push({ body, path })
+
+      if (path === '/api/models/route/validate') {
+        return { ok: true, provider: 'custom', model: 'local-model', message: 'ok' }
+      }
+
+      if (path === '/api/model/set') {
+        return { ok: true, provider: 'custom', model: 'local-model', base_url: 'http://127.0.0.1:8000/v1' }
+      }
+
+      throw new Error(`unexpected api path: ${path}`)
+    })
+
+    const result = await completeOnboardingWithVerifiedApiKey(
+      {
+        provider: customProvider,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        model: 'local-model',
+        credentialAlreadySaved: false
+      },
+      { requestGateway: readyGateway() }
+    )
+
+    expect(result.ok).toBe(true)
+    expect(calls.map(call => call.path)).toEqual(['/api/models/route/validate', '/api/model/set'])
+    expect(calls[0].body).toMatchObject({
+      provider: 'custom',
+      model: 'local-model',
+      base_url: 'http://127.0.0.1:8000/v1'
+    })
+    expect(calls[1].body).toMatchObject({
+      scope: 'main',
+      provider: 'custom',
+      model: 'local-model',
+      base_url: 'http://127.0.0.1:8000/v1'
+    })
   })
 })

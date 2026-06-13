@@ -1,6 +1,7 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { discoverProviderModels } from '@/hermes'
 import { $desktopOnboarding, type DesktopOnboardingState, type OnboardingContext } from '@/store/onboarding'
 
 import { Picker } from './desktop-onboarding-overlay'
@@ -102,8 +103,32 @@ describe('onboarding Picker', () => {
     $desktopOnboarding.set({ ...$desktopOnboarding.get(), manual: true })
     render(<Picker ctx={ctx} />)
 
-    await waitFor(() => expect(screen.getByText('请选择提供商并输入 API Key，然后发现模型。')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('请选择提供商并填写连接信息，然后发现模型。')).toBeTruthy())
     expect(screen.queryByText('Nous Portal')).toBeNull()
     expect(screen.queryByRole('button', { name: "I'll choose a provider later" })).toBeNull()
+  })
+
+  it('allows OpenAI compatible/local discovery with Base URL and no API key', async () => {
+    vi.mocked(discoverProviderModels).mockResolvedValue({
+      ok: true,
+      provider: 'custom',
+      base_url: 'http://127.0.0.1:8000/v1',
+      models: ['local-model'],
+      checked: [],
+      message: '发现 1 个模型'
+    })
+
+    setApiOnlyState()
+    render(<Picker ctx={ctx} />)
+
+    fireEvent.change(await screen.findByLabelText('提供商'), { target: { value: 'custom' } })
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://127.0.0.1:8000/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: /发现模型/ }))
+
+    await waitFor(() => expect(discoverProviderModels).toHaveBeenCalledWith({
+      provider: 'custom',
+      base_url: 'http://127.0.0.1:8000/v1'
+    }))
+    expect(await screen.findByDisplayValue('local-model')).toBeTruthy()
   })
 })
