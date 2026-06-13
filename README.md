@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="assets/banner.png" alt="QIQI-Claw" width="100%">
-</p>
-
-# QIQI-Claw ☤
+# QiQiClaw Agent ☤
 
 <p align="center">
   <a href="https://github.com/xzly111/qiqiclaw#readme"><img src="https://img.shields.io/badge/Docs-QiQiClaw-FFD700?style=for-the-badge" alt="Documentation"></a>
@@ -13,9 +9,9 @@
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
 </p>
 
-**QIQI-Claw is a self-improving AI agent with a built-in learning loop.** It creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
+**QiQiClaw Agent is a self-improving AI agent runtime for desktop, terminal, and messaging platforms.** It creates skills from experience, improves them during use, persists useful knowledge, searches its own past conversations, and builds a deepening model of your preferences across sessions. Run it locally, on a VPS, on a GPU machine, or as a long-running cloud worker, then talk to it from the desktop app, CLI, Telegram, Discord, Slack, WhatsApp, Signal, or Email.
 
-Use any model you want — [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ models), [NovitaAI](https://novita.ai) (AI-native cloud for Model API, Agent Sandbox, and GPU Cloud), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, or your own endpoint. Switch with `qiqiclaw model` — no code changes, no lock-in.
+Use the model provider you prefer — OpenRouter, OpenAI-compatible endpoints, Anthropic, DeepSeek, Qwen, Kimi/Moonshot, MiniMax, Hugging Face, local models, or your own gateway. Switch with `qiqiclaw model` — no code changes, no lock-in.
 
 <table>
 <tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
@@ -82,12 +78,13 @@ qiqiclaw doctor       # Diagnose any issues
 
 ---
 
-## Skip the API-key collection — Nous Portal
+## Configure API Providers
 
-QIQI-Claw works with whatever provider you want — that's not changing. But if you'd rather not collect five separate API keys for the model, web search, image generation, TTS, and a cloud browser, **[Nous Portal](https://portal.nousresearch.com)** covers all of them under one subscription:
+QiQiClaw Agent works with the provider stack you choose. The setup wizard can configure a model provider, tool backends, API keys, and the messaging gateway in one flow:
 
-- **300+ models** — pick any of them with `/model <name>`
-- **Tool Gateway** — web search (Firecrawl), image generation (FAL), text-to-speech (OpenAI), cloud browser (Browser Use), all routed through your sub. No extra accounts.
+- **Model providers** — OpenAI-compatible endpoints, OpenRouter, Anthropic, DeepSeek, Qwen, Kimi/Moonshot, MiniMax, local models, and more.
+- **Tool gateway** — web search, image generation, text-to-speech, browser automation, and other tool backends can be configured independently.
+- **Messaging gateway** — connect Telegram, Discord, Slack, WhatsApp, Signal, Email, and other platforms.
 
 One command from a fresh install:
 
@@ -95,7 +92,7 @@ One command from a fresh install:
 qiqiclaw setup
 ```
 
-That runs the setup wizard so you can choose your provider and turn on the Tool Gateway. Check the active services any time with `qiqiclaw status`. Full details on the [Tool Gateway docs page](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/tool-gateway).
+That runs the setup wizard so you can choose providers, save API credentials, and turn on the tool gateway. Check active services any time with `qiqiclaw status`. Full details are in the [Tool Gateway docs page](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/tool-gateway).
 
 You can still bring your own keys per-tool whenever you want — the gateway is per-backend, not all-or-nothing.
 

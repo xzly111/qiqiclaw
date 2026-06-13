@@ -1,23 +1,19 @@
 <div dir="rtl">
 
-<p align="center">
-  <img src="assets/banner.png" alt="QIQI-Claw" width="100%">
-</p>
-
-# QIQI-Claw ☤
+# QiQiClaw Agent ☤
 
 <p align="center">
-  <a href="https://github.com/xzly111/qiqiclaw#readme"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/xzly111/qiqiclaw#readme"><img src="https://img.shields.io/badge/Docs-QiQiClaw-FFD700?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://github.com/xzly111/qiqiclaw/issues"><img src="https://img.shields.io/badge/Support-Issues-5865F2?style=for-the-badge&logo=github&logoColor=white" alt="Issues"></a>
   <a href="https://github.com/xzly111/qiqiclaw/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
+  <a href="https://github.com/xzly111/qiqiclaw/releases"><img src="https://img.shields.io/badge/Releases-QiQiClaw-blueviolet?style=for-the-badge" alt="QiQiClaw Releases"></a>
   <a href="README.md"><img src="https://img.shields.io/badge/Lang-English-lightgrey?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
 </p>
 
-**[نوس ریسرچ (Nous Research)](https://nousresearch.com) کا تیار کردہ خود کو بہتر بنانے والا اے آئی (AI) ایجنٹ۔** یہ واحد ایجنٹ ہے جس میں سیکھنے کا عمل (learning loop) پہلے سے موجود ہے — یہ اپنے تجربات سے نئی مہارتیں (skills) بناتا ہے، استعمال کے دوران ان کو بہتر کرتا ہے، معلومات کو محفوظ رکھنے کے لیے خود کو یاد دہانی کرواتا ہے، اپنی پرانی بات چیت کو تلاش کر سکتا ہے، اور مختلف سیشنز کے دوران آپ کے بارے میں ایک گہری سمجھ پیدا کرتا ہے۔ اسے $5 والے VPS پر چلائیں، GPU کلسٹر پر، یا سرور لیس (serverless) انفراسٹرکچر پر جس کی قیمت استعمال نہ ہونے پر تقریباً صفر ہے۔ یہ آپ کے لیپ ٹاپ تک محدود نہیں ہے — آپ ٹیلی گرام (Telegram) سے اس کے ساتھ بات چیت کر سکتے ہیں جبکہ یہ کلاؤڈ VM پر کام کر رہا ہو۔
+**QiQiClaw Agent ایک خود کو بہتر بنانے والا AI agent runtime ہے جو desktop، terminal، اور messaging platforms کے لیے بنایا گیا ہے۔** یہ تجربات سے skills بناتا ہے، استعمال کے دوران انہیں بہتر کرتا ہے، مفید معلومات محفوظ رکھتا ہے، پرانی conversations تلاش کر سکتا ہے، اور sessions کے دوران آپ کی preferences سمجھتا ہے۔ اسے local machine، VPS، GPU machine، یا cloud worker پر چلائیں، پھر desktop app، CLI، Telegram، Discord، Slack، WhatsApp، Signal، یا Email سے بات کریں۔
 
-آپ اپنی مرضی کا کوئی بھی ماڈل استعمال کر سکتے ہیں — [Nous Portal](https://portal.nousresearch.com)، [OpenRouter](https://openrouter.ai) (200 سے زائد ماڈلز)، [NovitaAI](https://novita.ai) (ماڈل API، ایجنٹ سینڈ باکس، اور GPU کلاؤڈ کے لیے اے آئی مقامی کلاؤڈ)، [NVIDIA NIM](https://build.nvidia.com) (Nemotron)، [Xiaomi MiMo](https://platform.xiaomimimo.com)، [z.ai/GLM](https://z.ai)، [Kimi/Moonshot](https://platform.moonshot.ai)، [MiniMax](https://www.minimax.io)، [Hugging Face](https://huggingface.co)، OpenAI، یا اپنا حسب ضرورت اینڈ پوائنٹ (endpoint) استعمال کریں۔ ماڈل تبدیل کرنے کے لیے صرف `hermes model` استعمال کریں — کسی کوڈ کو تبدیل کرنے کی ضرورت نہیں، کوئی پابندی نہیں۔
+آپ اپنی پسند کا model provider استعمال کر سکتے ہیں — OpenRouter، OpenAI-compatible endpoints، Anthropic، DeepSeek، Qwen، Kimi/Moonshot، MiniMax، Hugging Face، local models، یا اپنا gateway۔ ماڈل تبدیل کرنے کے لیے `qiqiclaw model` استعمال کریں — کسی code change کی ضرورت نہیں۔
 
 <table>
 <tr><td><b>حقیقی ٹرمینل انٹرفیس</b></td><td>مکمل TUI جس میں ملٹی لائن ایڈیٹنگ، سلیش-کمانڈ آٹو کمپلیٹ، بات چیت کی ہسٹری، انٹرپٹ اور ری ڈائریکٹ، اور سٹریمنگ ٹول آؤٹ پٹ شامل ہے۔</td></tr>
@@ -45,7 +41,7 @@ curl -fsSL https://github.com/xzly111/qiqiclaw/install.sh | bash
 
 ### ونڈوز (نیٹو، پاور شیل)
 
-> **توجہ فرمائیں:** مقامی ونڈوز (Native Windows) پر ہرمیس بغیر WSL کے چلتا ہے — CLI، گیٹ وے، TUI، اور ٹولز سب مقامی طور پر کام کرتے ہیں۔ اگر آپ WSL2 استعمال کرنا پسند کرتے ہیں، تو اوپر دی گئی لینکس/میک او ایس کی کمانڈ وہاں بھی کام کرے گی۔ کوئی مسئلہ نظر آیا؟ براہ کرم [مسائل (issues) درج کریں](https://github.com/xzly111/qiqiclaw/issues)۔
+> **توجہ فرمائیں:** مقامی ونڈوز (Native Windows) پر QiQiClaw بغیر WSL کے چلتا ہے — CLI، gateway، TUI، اور tools سب مقامی طور پر کام کرتے ہیں۔ اگر آپ WSL2 استعمال کرنا پسند کرتے ہیں، تو اوپر دی گئی Linux/macOS کمانڈ وہاں بھی کام کرے گی۔ کوئی مسئلہ نظر آیا؟ براہ کرم [issues درج کریں](https://github.com/xzly111/qiqiclaw/issues)۔
 
 اسے پاور شیل (PowerShell) میں چلائیں:
 
@@ -57,11 +53,11 @@ iex (irm https://github.com/xzly111/qiqiclaw/install.ps1)
 
 </div>
 
-انسٹالر سب کچھ خود سنبھالتا ہے: uv، Python 3.11، Node.js، ripgrep، ffmpeg، **اور ایک پورٹ ایبل (portable) گٹ بیش (Git Bash)** (یعنی MinGit، جو `%LOCALAPPDATA%\hermes\git` میں ان پیک ہوتا ہے — اس کے لیے ایڈمن کی اجازت درکار نہیں، اور یہ سسٹم کے کسی بھی گٹ انسٹال سے بالکل الگ ہے)۔ ہرمیس اس بنڈل شدہ گٹ بیش کو شیل کمانڈز چلانے کے لیے استعمال کرتا ہے۔
+انسٹالر سب کچھ خود سنبھالتا ہے: uv، Python 3.11، Node.js، ripgrep، ffmpeg، **اور ایک portable Git Bash** (MinGit، جو `%LOCALAPPDATA%\hermes\git` میں unpack ہوتا ہے — admin اجازت درکار نہیں، اور یہ system Git سے الگ ہے)۔ QiQiClaw اس bundled Git Bash کو shell commands چلانے کے لیے استعمال کرتا ہے۔
 
 اگر آپ کے پاس پہلے سے گٹ (Git) انسٹال ہے، تو انسٹالر اسے شناخت کر لیتا ہے اور اسے ہی استعمال کرتا ہے۔ بصورت دیگر آپ کو صرف ~45MB کے MinGit ڈاؤنلوڈ کی ضرورت ہوگی — یہ آپ کے سسٹم کے گٹ پر کوئی اثر نہیں ڈالے گا۔
 
-> **اینڈرائیڈ (Android) / ٹرمکس (Termux):** ٹیسٹ کیا گیا مینوئل طریقہ [Termux گائیڈ](https://github.com/xzly111/qiqiclaw#readmegetting-started/termux) میں موجود ہے۔ ٹرمکس پر ہرمیس ایک مخصوص `.[termux]` ایکسٹرا انسٹال کرتا ہے کیونکہ مکمل `.[all]` ایکسٹرا میں ایسی وائس ڈیپینڈینسیز شامل ہیں جو اینڈرائیڈ کے ساتھ مطابقت نہیں رکھتیں۔
+> **اینڈرائیڈ (Android) / ٹرمکس (Termux):** ٹیسٹ کیا گیا manual طریقہ [Termux guide](https://github.com/xzly111/qiqiclaw#readmegetting-started/termux) میں موجود ہے۔ Termux پر QiQiClaw ایک مخصوص `.[termux]` extra install کرتا ہے کیونکہ مکمل `.[all]` extra میں کچھ voice dependencies Android کے ساتھ compatible نہیں۔
 >
 > **ونڈوز (Windows):** مقامی ونڈوز کی مکمل سپورٹ موجود ہے — اوپر دی گئی پاور شیل کی کمانڈ سب کچھ انسٹال کر دیتی ہے۔ اگر آپ WSL2 استعمال کرنا چاہتے ہیں، تو لینکس کی کمانڈ وہاں کام کرتی ہے۔ مقامی ونڈوز میں انسٹالیشن `%LOCALAPPDATA%\hermes` میں ہوتی ہے؛ جبکہ WSL2 میں لینکس کی طرح `~/.hermes` میں ہوتی ہے۔ ہرمیس کا وہ واحد فیچر جسے فی الحال خاص طور پر WSL2 کی ضرورت ہے وہ براؤزر پر مبنی ڈیش بورڈ چیٹ پین ہے (یہ POSIX PTY استعمال کرتا ہے — کلاسک CLI اور گیٹ وے دونوں مقامی طور پر چلتے ہیں)۔
 
@@ -71,7 +67,7 @@ iex (irm https://github.com/xzly111/qiqiclaw/install.ps1)
 
 ```bash
 source ~/.bashrc    # شیل کو ری لوڈ کریں (یا: source ~/.zshrc)
-hermes              # بات چیت شروع کریں!
+qiqiclaw            # بات چیت شروع کریں!
 ```
 
 </div>
@@ -100,24 +96,25 @@ hermes doctor       # کسی بھی مسئلے کی تشخیص کریں
 
 ---
 
-## API-کیز اکٹھی کرنے سے بچیں — Nous Portal
+## API providers configure کریں
 
-ہرمیس آپ کے پسندیدہ پرووائیڈر کے ساتھ کام کرتا ہے — یہ چیز تبدیل نہیں ہو رہی۔ لیکن اگر آپ ماڈل، ویب سرچ، امیج جنریشن، TTS، اور کلاؤڈ براؤزر کے لیے پانچ الگ الگ API کیز جمع نہیں کرنا چاہتے، تو **[Nous Portal](https://portal.nousresearch.com)** ان سب کو ایک ہی سبسکرپشن کے تحت کور کرتا ہے:
+QiQiClaw Agent آپ کے منتخب provider stack کے ساتھ کام کرتا ہے۔ setup wizard ایک ہی flow میں model provider، tool backends، API keys، اور messaging gateway configure کر سکتا ہے:
 
-- **300+ ماڈلز** — ان میں سے کوئی بھی ماڈل `/model <name>` کے ذریعے منتخب کریں
-- **ٹول گیٹ وے (Tool Gateway)** — ویب سرچ (Firecrawl)، امیج جنریشن (FAL)، ٹیکسٹ ٹو سپیچ (OpenAI)، کلاؤڈ براؤزر (Browser Use)، یہ سب آپ کی سبسکرپشن کے ذریعے چلتے ہیں۔ کسی اضافی اکاؤنٹ کی ضرورت نہیں۔
+- **Model providers** — OpenAI-compatible endpoints، OpenRouter، Anthropic، DeepSeek، Qwen، Kimi/Moonshot، MiniMax، local models، اور مزید۔
+- **Tool gateway** — web search، image generation، text-to-speech، browser automation، اور دوسرے tool backends الگ الگ configure ہو سکتے ہیں۔
+- **Messaging gateway** — Telegram، Discord، Slack، WhatsApp، Signal، Email، اور دوسرے platforms connect کریں۔
 
 نئی انسٹالیشن کے بعد بس ایک کمانڈ کی ضرورت ہے:
 
 <div dir="ltr">
 
 ```bash
-hermes setup --portal
+qiqiclaw setup
 ```
 
 </div>
 
-یہ آپ کو OAuth کے ذریعے لاگ ان کرواتا ہے، Nous کو آپ کا پرووائیڈر مقرر کرتا ہے، اور ٹول گیٹ وے کو آن کر دیتا ہے۔ `hermes portal info` کمانڈ استعمال کر کے آپ کسی بھی وقت چیک کر سکتے ہیں کہ کون کون سی سروسز منسلک ہیں۔ مکمل تفصیلات [Tool Gateway دستاویزات کے صفحے](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/tool-gateway) پر موجود ہیں۔
+یہ setup wizard چلاتا ہے تاکہ آپ providers منتخب کریں، API credentials محفوظ کریں، اور tool gateway enable کریں۔ active services کسی بھی وقت `qiqiclaw status` سے دیکھیں۔ مکمل تفصیلات [Tool Gateway docs](https://github.com/xzly111/qiqiclaw#readmeuser-guide/features/tool-gateway) میں موجود ہیں۔
 
 آپ اب بھی کسی بھی ٹول کے لیے اپنی مرضی کی API کیز استعمال کر سکتے ہیں — گیٹ وے ہر سروس کے لیے الگ الگ کام کرتا ہے، ایسا نہیں کہ یا تو سب کچھ استعمال کریں یا کچھ بھی نہیں۔
 
@@ -125,7 +122,7 @@ hermes setup --portal
 
 ## CLI بمقابلہ میسجنگ فوری حوالہ
 
-ہرمیس کے دو بنیادی انٹر فیس ہیں: آپ ٹرمینل UI کو `hermes` کے ساتھ شروع کریں، یا گیٹ وے چلا کر اس کے ساتھ ٹیلی گرام، ڈسکارڈ، سلیک، واٹس ایپ، سگنل، یا ای میل کے ذریعے بات کریں۔ جب آپ کسی بات چیت میں ہوتے ہیں، تو بہت سی سلیش (slash) کمانڈز دونوں انٹرفیسز میں ایک جیسی ہوتی ہیں۔
+QiQiClaw Agent کے دو بنیادی interfaces ہیں: terminal UI کو `qiqiclaw` کے ساتھ شروع کریں، یا gateway چلا کر Telegram، Discord، Slack، WhatsApp، Signal، یا Email کے ذریعے بات کریں۔ جب آپ conversation میں ہوتے ہیں، تو بہت سی slash commands دونوں interfaces میں ایک جیسی ہوتی ہیں۔
 
 <div dir="ltr">
 
@@ -244,10 +241,9 @@ scripts/run_tests.sh
 
 ## کمیونٹی (Community)
 
-- 💬 [ڈسکارڈ (Discord)](https://discord.gg/NousResearch)
 - 📚 [سکلز ہب (Skills Hub)](https://agentskills.io)
 - 🐛 [مسائل (Issues)](https://github.com/xzly111/qiqiclaw/issues)
-- 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — ہرمیس اور دیگر MCP ہوسٹس کے لیے لینکس (Linux) ڈیسک ٹاپ کنٹرول MCP سرور، جس میں AT-SPI ایکسیسیبلٹی ٹریز، Wayland/X11 ان پٹ، سکرین شاٹس، اور کمپوزیٹر ونڈو ٹارگیٹنگ شامل ہے۔
+- 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — QiQiClaw اور دیگر MCP hosts کے لیے Linux desktop control MCP server۔
 - 🔌 [QiQiClawClaw](https://github.com/AaronWong1999/hermesclaw) — کمیونٹی وی چیٹ (WeChat) برج: QIQI-Claw اور OpenClaw کو ایک ہی وی چیٹ اکاؤنٹ پر چلائیں۔
 
 ---
@@ -256,6 +252,6 @@ scripts/run_tests.sh
 
 MIT — تفصیلات کے لیے [LICENSE](LICENSE) دیکھیں۔
 
-[نوس ریسرچ (Nous Research)](https://nousresearch.com) کی جانب سے تیار کردہ۔
+Maintained as QiQiClaw Agent.
 
 </div>

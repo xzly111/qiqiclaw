@@ -84,7 +84,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/hermes-agent-banner.png',
+    image: 'img/logo.png',
     colorMode: {
       defaultMode: 'dark',
       respectPrefersColorScheme: true,
@@ -133,8 +133,8 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://discord.gg/NousResearch',
-          label: 'Discord',
+          href: 'https://github.com/xzly111/qiqiclaw/issues',
+          label: 'Issues',
           position: 'right',
         },
       ],
@@ -154,7 +154,6 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            { label: 'Discord', href: 'https://discord.gg/NousResearch' },
             { label: 'GitHub Issues', href: 'https://github.com/xzly111/qiqiclaw/issues' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
@@ -164,7 +163,6 @@ const config: Config = {
           items: [
             { label: 'Desktop Download', href: 'https://github.com/xzly111/qiqiclaw/releases' },
             { label: 'GitHub', href: 'https://github.com/xzly111/qiqiclaw' },
-            { label: 'Nous Research', href: 'https://nousresearch.com' },
           ],
         },
       ],

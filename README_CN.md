@@ -1,16 +1,12 @@
-# QiQiClaw - QIQI claw 汉化版本
-
-<p align="center">
-  <img src="assets/banner.png" alt="QiQiClaw" width="100%">
-</p>
+# QiQiClaw Agent
 
 ## 项目简介
 
-QiQiClaw 是 QIQI-Claw 的中文化发行版本。这是一个功能强大的自主 AI 代理系统，支持多平台部署和多种 LLM 提供商。
+QiQiClaw Agent 是面向桌面端、终端和消息平台的自主 AI 代理系统，支持多平台部署、多模型提供方、持久化记忆、技能系统和消息网关。它可以在本机、VPS、GPU 机器或云端环境中运行，并通过桌面端、CLI、Telegram、Discord、Slack、WhatsApp、Signal、Email 等入口使用。
 
 ### 主要特性
 
-- ✅ **完整汉化**：已汉化 `hermes_cli/auth.py` 模块（158 处中文提示）
+- ✅ **中文体验**：面向中文用户整理安装、配置和运行说明
 - 🤖 **多模型支持**：支持 20+ LLM 提供商（OpenRouter、Anthropic、OpenAI、DeepSeek 等）
 - 💬 **跨平台消息网关**：支持 Telegram、Discord、Slack、WhatsApp、Signal 等
 - 🧠 **持久化记忆**：跨会话记忆用户偏好和上下文

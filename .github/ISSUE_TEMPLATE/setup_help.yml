@@ -12,8 +12,8 @@ body:
         - Run `hermes debug share` and paste the links in the Debug Report section below
         - If you're in a chat session, you can use `/debug` instead — it does the same thing
         - Try `hermes update` to get the latest version
-        - Check the [README troubleshooting section](https://github.com/NousResearch/hermes-agent#troubleshooting)
-        - For general questions, consider the [Nous Research Discord](https://discord.gg/NousResearch) for faster help
+        - Check the [README troubleshooting section](https://github.com/xzly111/qiqiclaw#troubleshooting)
+        - For general questions, open a QiQiClaw issue with your logs and environment details.
 
   - type: textarea
     id: description
@@ -21,7 +21,7 @@ body:
       label: What's Going Wrong?
       description: Describe what you're trying to do and where it fails.
       placeholder: |
-        I ran `hermes setup` and selected Nous Portal, but when I try to
+        I ran `qiqiclaw setup`, but when I try to
         start the gateway I get...
     validations:
       required: true
