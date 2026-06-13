@@ -15,7 +15,6 @@ import type { AuxiliaryModelsResponse, ModelOptionProvider, StaleAuxAssignment }
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
-import { startManualProviderOAuth } from '@/store/onboarding'
 
 import { CONTROL_TEXT } from './constants'
 import { ListRow, LoadingState, Pill, SectionHeading } from './primitives'
@@ -145,8 +144,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const selectedProviderModels = selectedProviderRow?.models ?? []
 
   // An unconfigured provider was picked: no credentials yet, so there are no
-  // models to choose. `api_key` providers can be activated inline (paste key);
-  // OAuth / external flows hand off to the onboarding sign-in.
+  // models to choose. `api_key` providers can be activated inline (paste key).
   const needsSetup = !!selectedProvider && !isProviderReady(selectedProviderRow)
   const setupIsApiKey = needsSetup && selectedProviderRow?.auth_type === 'api_key' && !!selectedProviderRow?.key_env
 
@@ -222,14 +220,6 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       setActivating(false)
     }
   }, [apiKeyDraft, selectedProviderRow])
-
-  // OAuth / external providers can't be activated with a pasted key — hand off
-  // to the shared onboarding flow scoped to this provider's real sign-in.
-  const startProviderSetup = useCallback(() => {
-    if (selectedProviderRow?.slug) {
-      startManualProviderOAuth(selectedProviderRow.slug)
-    }
-  }, [selectedProviderRow])
 
   const applyMainModel = useCallback(async () => {
     if (!selectedProvider || !selectedModel) {
@@ -386,11 +376,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   {activating ? 'Activating...' : 'Activate'}
                 </Button>
               </>
-            ) : (
-              <Button onClick={startProviderSetup} size="sm" variant="textStrong">
-                Set up {selectedProviderRow?.name ?? 'provider'}
-              </Button>
-            )
+            ) : null
           ) : (
             <>
               <Select onValueChange={setSelectedModel} value={selectedModel}>
@@ -420,7 +406,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           <p className="mt-2 text-xs text-muted-foreground">
             {selectedProviderRow?.auth_type === 'api_key'
               ? `${selectedProviderRow?.name} needs an API key — set it up to choose a model.`
-              : `${selectedProviderRow?.name} signs in through your browser — QiQiClaw runs the flow for you.`}
+              : `${selectedProviderRow?.name} is not an API-key provider. Use the Providers page to add an API-key credential or route an OpenAI-compatible endpoint.`}
           </p>
         )}
         {error && <div className="mt-2 text-xs text-destructive">{error}</div>}

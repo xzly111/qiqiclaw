@@ -25,11 +25,8 @@ import { $desktopBoot, type DesktopBootState } from '@/store/boot'
 import {
   $desktopOnboarding,
   cancelOnboardingFlow,
-  clearPendingProviderOAuth,
   closeManualOnboarding,
   confirmOnboardingModel,
-  copyDeviceCode,
-  copyExternalCommand,
   DEFAULT_MANUAL_ONBOARDING_REASON,
   DEFAULT_ONBOARDING_REASON,
   completeOnboardingWithVerifiedApiKey,
@@ -37,14 +34,9 @@ import {
   type OnboardingContext,
   type OnboardingFlow,
   loadOnboardingLlmProviders,
-  peekPendingProviderOAuth,
-  recheckExternalSignin,
   refreshOnboarding,
   saveOnboardingApiKey,
-  setOnboardingCode,
   setOnboardingModel,
-  startProviderOAuth,
-  submitOnboardingCode
 } from '@/store/onboarding'
 import type { ModelOptionProvider, OAuthProvider, ProviderCatalogEntry } from '@/types/hermes'
 
@@ -99,12 +91,12 @@ const API_KEY_OPTIONS: ApiKeyOption[] = [
 ]
 
 // Build the FULL API-key provider catalog from the backend model options so the
-// onboarding / Providers key form lists every `api_key` provider `hermes model`
+// onboarding / Providers key form lists every `api_key` provider QiQiClaw model
 // knows about — not just the hand-curated five. Curated entries keep their
 // richer copy + placeholders and float to the top (recommended defaults); every
 // other api_key provider is appended with a generic "paste {KEY}" affordance.
-// OAuth / external providers are intentionally excluded here — they go through
-// the OAuth picker / sign-in flow, not a pasted key.
+// Account-login/external providers are intentionally excluded from onboarding;
+// the desktop setup flow is API-key/provider-route only.
 function useApiKeyCatalog(): ApiKeyOption[] {
   const [rows, setRows] = useState<ModelOptionProvider[]>([])
 
@@ -136,7 +128,7 @@ function useApiKeyCatalog(): ApiKeyOption[] {
     const seenEnv = new Set<string>(API_KEY_OPTIONS.map(o => o.envKey))
 
     for (const row of rows) {
-      // Only api_key providers can be activated with a pasted key. Skip OAuth /
+      // Only api_key providers can be activated with a pasted key. Skip
       // external / managed flows and anything missing an env var to write to.
       if (row.auth_type && row.auth_type !== 'api_key') {
         continue
@@ -229,36 +221,6 @@ export function DesktopOnboardingOverlay({ enabled, onCompleted, requestGateway 
     }
   }, [ctx, enabled, onboarding.requested])
 
-  // When the Providers settings page asked to connect a specific provider, the
-  // store stashed its id. Once the provider list has loaded and we're back at
-  // an idle picker, launch that exact OAuth flow so the user lands directly in
-  // sign-in instead of the picker they just came from.
-  useEffect(() => {
-    if (!onboarding.manual || onboarding.providers === null || onboarding.flow.status !== 'idle') {
-      return
-    }
-
-    const pendingId = peekPendingProviderOAuth()
-
-    if (!pendingId) {
-      return
-    }
-
-    const provider = onboarding.providers.find(p => p.id === pendingId)
-
-    if (provider) {
-      // Only clear once we've committed to launching it, so a failed/empty
-      // provider fetch doesn't silently drop the hand-off.
-      clearPendingProviderOAuth()
-      void startProviderOAuth(provider, ctx)
-    } else if (onboarding.providers.length > 0) {
-      // The list loaded but the id isn't a real provider — drop the stale
-      // hand-off. An empty list means the fetch isn't ready yet, so keep it
-      // and let a later refresh retry.
-      clearPendingProviderOAuth()
-    }
-  }, [ctx, onboarding.flow.status, onboarding.manual, onboarding.providers])
-
   // Mount from frame 1 so we replace the boot overlay seamlessly. The
   // configured field stays null until the runtime check resolves; only then
   // do we know whether to dismiss (true) or surface the picker (false).
@@ -293,7 +255,7 @@ export function DesktopOnboardingOverlay({ enabled, onCompleted, requestGateway 
   // immediately — no runtime gate needed. Otherwise wait for the readiness
   // check (configured === false) before showing the picker.
   const ready = onboarding.manual || (enabled && onboarding.configured === false)
-  const showPicker = flow.status === 'idle' || flow.status === 'success'
+  const showPicker = flow.status === 'idle'
   // The final "you're in" screen drops the card chrome and floats centered on
   // the surface — same bare, cinematic treatment as the connecting overlay.
   const bare = ready && !showPicker && flow.status === 'confirming_model'
@@ -339,7 +301,7 @@ export function DesktopOnboardingOverlay({ enabled, onCompleted, requestGateway 
             showPicker ? (
               <Picker ctx={ctx} />
             ) : (
-              <FlowPanel ctx={ctx} flow={flow} leaving={leaving} onBegin={finalizeOnboarding} />
+              <FlowPanel flow={flow} leaving={leaving} onBegin={finalizeOnboarding} />
             )
           ) : (
             <Preparing boot={boot} />
@@ -792,32 +754,15 @@ export function ApiKeyForm({
 }
 
 function FlowPanel({
-  ctx,
   flow,
   leaving,
   onBegin
 }: {
-  ctx: OnboardingContext
   flow: OnboardingFlow
   leaving: boolean
   onBegin: () => void
 }) {
   const { t } = useI18n()
-  const title = 'provider' in flow && flow.provider ? providerTitle(flow.provider) : ''
-
-  if (flow.status === 'starting') {
-    return <Status>{t.onboarding.startingSignIn(title)}</Status>
-  }
-
-  if (flow.status === 'submitting') {
-    return <Status>{t.onboarding.verifyingCode(title)}</Status>
-  }
-
-  if (flow.status === 'success') {
-    return (
-      <DecodedLabel text={t.onboarding.connectedPicking(title)} />
-    )
-  }
 
   if (flow.status === 'confirming_model') {
     return <ConfirmingModelPanel flow={flow} leaving={leaving} onBegin={onBegin} />
@@ -832,169 +777,14 @@ function FlowPanel({
         </div>
         <div className="flex justify-end">
           <Button onClick={cancelOnboardingFlow} variant="outline">
-            {t.onboarding.pickDifferentProvider}
+            重新配置 API
           </Button>
         </div>
       </div>
     )
   }
 
-  if (flow.status === 'awaiting_user') {
-    return (
-      <Step title={t.onboarding.signInWith(title)}>
-        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>{t.onboarding.openedBrowser(title)}</li>
-          <li>{t.onboarding.authorizeThere}</li>
-          <li>{t.onboarding.copyAuthCode}</li>
-        </ol>
-        <Input
-          autoFocus
-          onChange={e => setOnboardingCode(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && void submitOnboardingCode(ctx)}
-          placeholder={t.onboarding.pasteAuthCode}
-          value={flow.code}
-        />
-        <FlowFooter left={<DocsLink href={flow.start.auth_url}>{t.onboarding.reopenAuthPage}</DocsLink>}>
-          <CancelBtn />
-          <Button disabled={!flow.code.trim()} onClick={() => void submitOnboardingCode(ctx)}>
-            {t.common.continue}
-          </Button>
-        </FlowFooter>
-      </Step>
-    )
-  }
-
-  if (flow.status === 'awaiting_browser') {
-    return (
-      <Step title={t.onboarding.signInWith(title)}>
-        <p className="text-sm text-muted-foreground">{t.onboarding.autoBrowser(title)}</p>
-        <FlowFooter left={<DocsLink href={flow.start.auth_url}>{t.onboarding.reopenSignInPage}</DocsLink>}>
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            {t.onboarding.waitingAuthorize}
-          </span>
-          <CancelBtn size="sm" />
-        </FlowFooter>
-      </Step>
-    )
-  }
-
-  if (flow.status === 'external_pending') {
-    return (
-      <Step title={t.onboarding.signInWith(title)}>
-        <p className="text-sm text-muted-foreground">{t.onboarding.externalPending(title)}</p>
-        <CodeBlock copied={flow.copied} onCopy={() => void copyExternalCommand()} text={flow.provider.cli_command} />
-        <FlowFooter
-          left={
-            flow.provider.docs_url ? (
-              <DocsLink href={flow.provider.docs_url}>{t.onboarding.docs(title)}</DocsLink>
-            ) : null
-          }
-        >
-          <CancelBtn />
-          <Button onClick={() => void recheckExternalSignin(ctx)}>{t.onboarding.signedIn}</Button>
-        </FlowFooter>
-      </Step>
-    )
-  }
-
-  if (flow.status !== 'polling') {
-    return null
-  }
-
-  return (
-    <Step title={t.onboarding.signInWith(title)}>
-      <p className="text-sm text-muted-foreground">{t.onboarding.deviceCodeOpened(title)}</p>
-      <DeviceCode code={flow.start.user_code} copied={flow.copied} onCopy={() => void copyDeviceCode()} />
-      <FlowFooter left={<DocsLink href={flow.start.verification_url}>{t.onboarding.reopenVerification}</DocsLink>}>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
-          {t.onboarding.waitingAuthorize}
-        </span>
-        <CancelBtn size="sm" />
-      </FlowFooter>
-    </Step>
-  )
-}
-
-function Step({ children, title }: { children: React.ReactNode; title: string }) {
-  return (
-    <div className="grid gap-4">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      {children}
-    </div>
-  )
-}
-
-// Device-code display: OTP-style — each character in its own readonly cell.
-// The whole row is the copy button (no side button, no checkmark); on copy the
-// cells flash emerald for feedback. Dashes render as quiet separators.
-function DeviceCode({ code, copied, onCopy }: { code: string; copied: boolean; onCopy: () => void }) {
-  const { t } = useI18n()
-
-  return (
-    <button
-      aria-label={t.onboarding.copy}
-      className="group flex w-full items-center justify-center gap-1.5"
-      onClick={onCopy}
-      type="button"
-    >
-      {[...code].map((ch, i) =>
-        ch === '-' || ch === ' ' ? (
-          <span className="w-1.5 text-center text-lg text-muted-foreground" key={i}>
-            –
-          </span>
-        ) : (
-          <span
-            className={cn(
-              'flex size-10 items-center justify-center rounded-md border font-mono text-xl font-semibold uppercase transition-colors',
-              copied
-                ? 'border-primary/50 text-primary'
-                : 'border-(--stroke-nous) text-foreground group-hover:border-(--ui-stroke-secondary)'
-            )}
-            key={i}
-          >
-            {ch}
-          </span>
-        )
-      )}
-    </button>
-  )
-}
-
-function CodeBlock({ copied, onCopy, text }: { copied: boolean; onCopy: () => void; text: string }) {
-  const { t } = useI18n()
-
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-(--stroke-nous) px-3 py-2">
-      <code className="min-w-0 flex-1 truncate font-mono text-sm">
-        <span className="mr-2 select-none text-muted-foreground">$</span>
-        {text}
-      </code>
-      <Button onClick={onCopy} size="sm" variant="outline">
-        {copied ? t.common.copied : t.onboarding.copy}
-      </Button>
-    </div>
-  )
-}
-
-function FlowFooter({ children, left }: { children: React.ReactNode; left?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">{left}</div>
-      <div className="flex items-center gap-3">{children}</div>
-    </div>
-  )
-}
-
-function CancelBtn({ size = 'default' }: { size?: 'default' | 'sm' }) {
-  const { t } = useI18n()
-
-  return (
-    <Button onClick={cancelOnboardingFlow} size={size} variant="ghost">
-      {t.common.cancel}
-    </Button>
-  )
+  return null
 }
 
 // Borrowed from the gateway "connecting" overlay: a mono, letter-spaced label

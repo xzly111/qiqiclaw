@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { OAuthProvider } from '@/types/hermes'
-
 import {
   $desktopOnboarding,
   type DesktopOnboardingState,
@@ -9,25 +7,13 @@ import {
   refreshOnboarding,
   requestDesktopOnboarding,
   saveOnboardingLocalEndpoint,
-  submitOnboardingCode
 } from './onboarding'
-
-function provider(id: string, name = id): OAuthProvider {
-  return {
-    cli_command: `hermes login ${id}`,
-    docs_url: `https://example.com/${id}`,
-    flow: 'pkce',
-    id,
-    name,
-    status: { logged_in: false }
-  }
-}
 
 function baseState(overrides: Partial<DesktopOnboardingState> = {}): DesktopOnboardingState {
   return {
     configured: false,
     flow: { status: 'idle' },
-    mode: 'oauth',
+    mode: 'apikey',
     providers: null,
     reason: null,
     requested: false,
@@ -74,170 +60,37 @@ describe('refreshOnboarding', () => {
     vi.restoreAllMocks()
   })
 
-  it('refreshes OAuth providers again when onboarding was explicitly requested', async () => {
+  it('does not request account sign-in providers when onboarding is explicitly requested', async () => {
     const api = vi.fn(async ({ path }: { path: string }) => {
-      if (path === '/api/providers/oauth') {
-        return { providers: [provider('fresh')] }
-      }
-
       throw new Error(`unexpected api path: ${path}`)
     })
 
     installApiMock(api)
-    $desktopOnboarding.set(baseState({ providers: [provider('cached')] }))
+    $desktopOnboarding.set(baseState({ providers: [] }))
     requestDesktopOnboarding('Need provider setup')
 
     const ready = await refreshOnboarding(onboardingContext(runtimeMismatchGateway()))
 
     expect(ready).toBe(false)
-    expect(api).toHaveBeenCalledTimes(1)
-    expect($desktopOnboarding.get().providers?.map(p => p.id)).toEqual(['fresh'])
+    expect(api).not.toHaveBeenCalled()
+    expect($desktopOnboarding.get().providers).toEqual([])
     expect($desktopOnboarding.get().reason).toContain('Selected runtime is not available.')
     expect($desktopOnboarding.get().reason).toContain('setup.status reports configured credentials')
   })
 
-  it('keeps cached providers when onboarding was not re-requested', async () => {
+  it('keeps the API-key onboarding mode when onboarding was not re-requested', async () => {
     const api = vi.fn(async ({ path }: { path: string }) => {
-      if (path === '/api/providers/oauth') {
-        return { providers: [provider('fresh')] }
-      }
-
       throw new Error(`unexpected api path: ${path}`)
     })
 
     installApiMock(api)
-    $desktopOnboarding.set(baseState({ providers: [provider('cached')] }))
+    $desktopOnboarding.set(baseState({ providers: [] }))
 
     const ready = await refreshOnboarding(onboardingContext(runtimeMismatchGateway()))
 
     expect(ready).toBe(false)
     expect(api).not.toHaveBeenCalled()
-    expect($desktopOnboarding.get().providers?.map(p => p.id)).toEqual(['cached'])
-  })
-
-  it('deduplicates concurrent provider refresh calls', async () => {
-    let resolveProviders!: (value: { providers: OAuthProvider[] }) => void
-
-    const providersPromise = new Promise<{ providers: OAuthProvider[] }>(resolve => {
-      resolveProviders = value => {
-        resolve(value)
-      }
-    })
-
-    const api = vi.fn(async ({ path }: { path: string }) => {
-      if (path === '/api/providers/oauth') {
-        return providersPromise
-      }
-
-      throw new Error(`unexpected api path: ${path}`)
-    })
-
-    installApiMock(api)
-    $desktopOnboarding.set(baseState({ requested: true }))
-
-    const first = refreshOnboarding(onboardingContext(runtimeMismatchGateway()))
-    const second = refreshOnboarding(onboardingContext(runtimeMismatchGateway()))
-
-    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1))
-
-    resolveProviders({ providers: [provider('shared')] })
-    await Promise.all([first, second])
-
-    expect($desktopOnboarding.get().providers?.map(p => p.id)).toEqual(['shared'])
-  })
-})
-
-describe('OAuth onboarding', () => {
-  beforeEach(() => {
-    window.localStorage.clear()
-    $desktopOnboarding.set(baseState())
-  })
-
-  afterEach(() => {
-    window.localStorage.clear()
-    $desktopOnboarding.set(baseState())
-    vi.restoreAllMocks()
-  })
-
-  it('clears stale readiness errors after OAuth succeeds and model confirmation is shown', async () => {
-    const model = 'anthropic/claude-opus-4.8'
-    const calls: { body?: unknown; path: string }[] = []
-
-    installApiMock(async ({ body, path }: { body?: unknown; path: string }) => {
-      calls.push({ body, path })
-
-      if (path === '/api/providers/oauth/nous/submit') {
-        return { ok: true, status: 'approved' }
-      }
-
-      if (path === '/api/model/options') {
-        return {
-          providers: [
-            {
-              name: 'Nous Portal',
-              slug: 'nous',
-              models: [model]
-            }
-          ]
-        }
-      }
-
-      if (path.startsWith('/api/model/recommended-default?')) {
-        return { provider: 'nous', model, free_tier: false }
-      }
-
-      if (path === '/api/model/set') {
-        return { ok: true, provider: 'nous', model, gateway_tools: [] }
-      }
-
-      throw new Error(`unexpected api path: ${path}`)
-    })
-
-    const requestGateway: OnboardingContext['requestGateway'] = async method => {
-      if (method === 'reload.env') {
-        return {} as never
-      }
-
-      if (method === 'setup.status') {
-        return { provider_configured: true } as never
-      }
-
-      if (method === 'setup.runtime_check') {
-        return { ok: true } as never
-      }
-
-      throw new Error(`unexpected gateway method: ${method}`)
-    }
-
-    $desktopOnboarding.set(
-      baseState({
-        flow: {
-          status: 'awaiting_user',
-          provider: provider('nous', 'Nous Portal'),
-          start: {
-            auth_url: 'https://portal.example/auth',
-            expires_in: 600,
-            flow: 'pkce',
-            session_id: 'portal-session'
-          },
-          code: 'fresh-code'
-        },
-        reason:
-          'No access token found for Nous Portal login. setup.status reports configured credentials, but runtime resolution still failed.',
-        requested: true
-      })
-    )
-
-    await submitOnboardingCode(onboardingContext(requestGateway))
-
-    const state = $desktopOnboarding.get()
-    expect(state.reason).toBeNull()
-    expect(state.flow.status).toBe('confirming_model')
-    if (state.flow.status === 'confirming_model') {
-      expect(state.flow.label).toBe('Nous Portal')
-      expect(state.flow.currentModel).toBe(model)
-    }
-    expect(calls.some(c => c.path === '/api/model/set')).toBe(true)
+    expect($desktopOnboarding.get().mode).toBe('apikey')
   })
 })
 

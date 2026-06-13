@@ -2,7 +2,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $desktopOnboarding, type DesktopOnboardingState, type OnboardingContext } from '@/store/onboarding'
-import type { OAuthProvider } from '@/types/hermes'
 
 import { Picker } from './desktop-onboarding-overlay'
 
@@ -44,23 +43,12 @@ vi.mock('@/hermes', () => ({
   validateProviderCredential: vi.fn()
 }))
 
-function provider(id: string, name = id): OAuthProvider {
-  return {
-    cli_command: `hermes login ${id}`,
-    docs_url: `https://example.com/${id}`,
-    flow: 'pkce',
-    id,
-    name,
-    status: { logged_in: false }
-  }
-}
-
-function setProviders(providers: OAuthProvider[]) {
+function setApiOnlyState() {
   $desktopOnboarding.set({
     configured: false,
     flow: { status: 'idle' },
-    mode: 'oauth',
-    providers,
+    mode: 'apikey',
+    providers: [],
     reason: null,
     requested: false,
     firstRunSkipped: false,
@@ -86,7 +74,7 @@ afterEach(() => {
   $desktopOnboarding.set({
     configured: null,
     flow: { status: 'idle' },
-    mode: 'oauth',
+    mode: 'apikey',
     providers: null,
     reason: null,
     requested: false,
@@ -97,7 +85,7 @@ afterEach(() => {
 
 describe('onboarding Picker', () => {
   it('shows the provider API wizard instead of account sign-in choices', async () => {
-    setProviders([provider('anthropic', 'Anthropic Claude'), provider('nous', 'Nous Portal')])
+    setApiOnlyState()
     render(<Picker ctx={ctx} />)
 
     expect(screen.getByText('配置 LLM API')).toBeTruthy()
@@ -110,7 +98,7 @@ describe('onboarding Picker', () => {
   })
 
   it('keeps the same API wizard in manual provider setup mode', async () => {
-    setProviders([provider('nous', 'Nous Portal')])
+    setApiOnlyState()
     $desktopOnboarding.set({ ...$desktopOnboarding.get(), manual: true })
     render(<Picker ctx={ctx} />)
 

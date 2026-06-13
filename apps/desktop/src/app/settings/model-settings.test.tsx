@@ -16,7 +16,6 @@ const getAuxiliaryModels = vi.fn()
 const setModelAssignment = vi.fn()
 const getRecommendedDefaultModel = vi.fn()
 const setEnvVar = vi.fn()
-const startManualProviderOAuth = vi.fn()
 
 vi.mock('@/hermes', () => ({
   getGlobalModelInfo: () => getGlobalModelInfo(),
@@ -25,10 +24,6 @@ vi.mock('@/hermes', () => ({
   setModelAssignment: (body: unknown) => setModelAssignment(body),
   getRecommendedDefaultModel: (slug: string) => getRecommendedDefaultModel(slug),
   setEnvVar: (key: string, value: string) => setEnvVar(key, value)
-}))
-
-vi.mock('@/store/onboarding', () => ({
-  startManualProviderOAuth: (slug: string) => startManualProviderOAuth(slug)
 }))
 
 beforeEach(() => {

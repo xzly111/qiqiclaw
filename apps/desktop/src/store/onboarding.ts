@@ -2,57 +2,33 @@ import { atom } from 'nanostores'
 
 import {
   addCredentialPoolEntry,
-  cancelOAuthSession,
   discoverProviderModels,
   getGlobalModelOptions,
   getRecommendedDefaultModel,
   getProviderCatalog,
-  listOAuthProviders,
-  pollOAuthSession,
   setEnvVar,
   setModelAssignment,
-  startOAuthLogin,
-  submitOAuthCode,
   validateModelRoute,
   validateProviderCredential
 } from '@/hermes'
 import { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { notify, notifyError } from '@/store/notifications'
-import type { ModelOptionProvider, OAuthProvider, OAuthStartResponse, ProviderCatalogEntry } from '@/types/hermes'
+import type { ModelOptionProvider, ProviderCatalogEntry } from '@/types/hermes'
 
-type PkceStart = Extract<OAuthStartResponse, { flow: 'pkce' }>
-type DeviceStart = Extract<OAuthStartResponse, { flow: 'device_code' }>
-type LoopbackStart = Extract<OAuthStartResponse, { flow: 'loopback' }>
-
-export type OnboardingMode = 'apikey' | 'oauth'
+export type OnboardingMode = 'apikey'
 
 export type OnboardingFlow =
   | { status: 'idle' }
-  | { provider: OAuthProvider; status: 'starting' }
-  | { code: string; provider: OAuthProvider; start: PkceStart; status: 'awaiting_user' }
-  | { copied: boolean; provider: OAuthProvider; start: DeviceStart; status: 'polling' }
-  // Loopback PKCE (xAI Grok): browser opens, the local backend's 127.0.0.1
-  // listener catches the redirect, and we poll until the worker finishes.
-  // No code to paste and no user_code to show — just a waiting state.
-  | { provider: OAuthProvider; start: LoopbackStart; status: 'awaiting_browser' }
-  | { provider: OAuthProvider; start: OAuthStartResponse; status: 'submitting' }
-  | { copied: boolean; provider: OAuthProvider; status: 'external_pending' }
-  | { provider: OAuthProvider; status: 'success' }
   | {
-      // After successful credential acquisition, before completing
-      // onboarding: show the user which model they're getting and let
-      // them change it. providerSlug is the model.options slug for the
-      // just-authenticated provider (used to persist the chosen model
-      // via /api/model/set). The change-model UI uses the existing
-      // ModelPickerDialog, which fetches its own model list from
-      // /api/model/options — no need to cache the list here.
+      // After successful credential acquisition, before completing onboarding:
+      // show the user which model they're getting and let them change it.
       currentModel: string
       label: string
       providerSlug: string
       saving: boolean
       status: 'confirming_model'
     }
-  | { message: string; provider?: OAuthProvider; start?: OAuthStartResponse; status: 'error' }
+  | { message: string; status: 'error' }
 
 export interface DesktopOnboardingState {
   /** null until the first runtime check resolves. Seeded from localStorage so
@@ -61,7 +37,7 @@ export interface DesktopOnboardingState {
   configured: boolean | null
   flow: OnboardingFlow
   mode: OnboardingMode
-  providers: null | OAuthProvider[]
+  providers: null | []
   reason: null | string
   requested: boolean
   /** True when the user explicitly chose "I'll choose a provider later" on the
@@ -93,8 +69,6 @@ export interface OnboardingLlmProviderSetupInput {
 
 const CONFIGURED_CACHE_KEY = 'qiqiclaw-desktop-onboarded-v1'
 const SKIP_CACHE_KEY = 'qiqiclaw-onboarding-skipped-v1'
-const POLL_MS = 2000
-const COPY_FLASH_MS = 1500
 export const DEFAULT_ONBOARDING_REASON = 'No inference provider is configured.'
 export const DEFAULT_MANUAL_ONBOARDING_REASON = 'Add or switch inference provider.'
 
@@ -168,7 +142,6 @@ const INITIAL: DesktopOnboardingState = {
 export const $desktopOnboarding = atom<DesktopOnboardingState>(INITIAL)
 
 let pollTimer: number | null = null
-let providersRefreshPromise: null | Promise<void> = null
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -177,8 +150,6 @@ const patch = (update: Partial<DesktopOnboardingState>) =>
 
 const setFlow = (flow: OnboardingFlow) =>
   patch(flow.status === 'idle' ? { flow } : { flow, reason: null })
-
-const sessionIdFor = (flow: OnboardingFlow) => ('start' in flow && flow.start ? flow.start.session_id : undefined)
 
 function clearPoll() {
   if (pollTimer !== null) {
@@ -295,21 +266,15 @@ async function fetchProviderDefaultModel(
   }
 }
 
-// After OAuth/API-key success: reload the backend env, verify runtime,
-// then either show the model-confirm step or fall straight through to
-// completion if we can't determine a default.
-//
-// onFail receives the runtime-readiness `reason` from checkRuntime so
-// the caller can fold it into a user-facing error — same contract as
-// reloadAndConnect used to have (which this replaces).
+// After API-key success: reload the backend env, verify runtime, then either
+// show the model-confirm step or fall straight through to completion if we
+// can't determine a default.
 async function completeWithModelConfirm(
   ctx: OnboardingContext,
   providerLabel: string,
   preferredSlugs: string[],
   onFail: (reason: null | string) => void,
-  // When true, a failing runtime check no longer blocks progression — the
-  // user is allowed through onboarding regardless. Used by the API-key path,
-  // where we intentionally don't validate the key (it blocked too many users).
+  // When true, a failing runtime check no longer blocks progression.
   ignoreRuntimeGate = false
 ) {
   await ctx.requestGateway('reload.env').catch(() => undefined)
@@ -370,80 +335,30 @@ function providerResolutionFailure(reason: null | string) {
     : 'Connected, but QiQiClaw still cannot resolve a usable provider.'
 }
 
-async function refreshProviders() {
-  if (providersRefreshPromise) {
-    await providersRefreshPromise
-
-    return
-  }
-
-  providersRefreshPromise = (async () => {
-    try {
-      const { providers } = await listOAuthProviders()
-      patch({ mode: 'apikey', providers })
-    } catch {
-      patch({ mode: 'apikey', providers: [] })
-    } finally {
-      providersRefreshPromise = null
-    }
-  })()
-
-  await providersRefreshPromise
-}
-
 export function requestDesktopOnboarding(reason = DEFAULT_ONBOARDING_REASON) {
   patch({ reason: reason.trim() || DEFAULT_ONBOARDING_REASON, requested: true })
 }
 
 // Open the onboarding provider selector on demand from an already-configured
-// app — e.g. the model picker's "Add provider" button. Reuses the entire
-// onboarding flow (OAuth rows, API-key form, model-confirm) instead of
-// duplicating provider UI. Sets manual=true so the overlay shows the picker
-// even though configured===true, and refreshes the provider list.
+// app — e.g. the model picker's "Add provider" button. The desktop onboarding
+// surface is intentionally API-key/provider-route only; account sign-in is not
+// part of the first-run or add-provider flow.
 export function startManualOnboarding(reason: null | string = DEFAULT_MANUAL_ONBOARDING_REASON) {
   patch({
     manual: true,
     mode: 'apikey',
     requested: true,
-    // `null` opts out of the prompt banner entirely (e.g. when the user already
-    // picked a specific provider and we auto-start its sign-in).
+    providers: [],
+    // `null` opts out of the prompt banner entirely.
     reason: reason ? reason.trim() || DEFAULT_ONBOARDING_REASON : null,
     flow: { status: 'idle' }
   })
-  void refreshProviders()
-}
-
-// One-shot hand-off used when the dedicated Providers settings page launches a
-// specific provider's sign-in: we open the manual onboarding overlay AND
-// remember which provider to start, so the overlay drives that exact OAuth
-// flow instead of re-showing the picker the user just clicked through.
-// Module-level (not store state) because it's consumed immediately on the next
-// overlay render and never needs to persist or re-render anything itself.
-let pendingProviderOAuthId: null | string = null
-
-export function startManualProviderOAuth(providerId: string, reason: null | string = null) {
-  pendingProviderOAuthId = providerId
-  startManualOnboarding(reason)
-}
-
-// Read the pending provider id without clearing it. The overlay only clears it
-// (via clearPendingProviderOAuth) once it has actually launched that provider,
-// so a transient empty/failed provider fetch doesn't drop the hand-off and the
-// deep-link can still auto-start after the list loads.
-export function peekPendingProviderOAuth(): null | string {
-  return pendingProviderOAuthId
-}
-
-export function clearPendingProviderOAuth() {
-  pendingProviderOAuthId = null
 }
 
 // Dismiss a manually-opened provider selector without touching the existing
 // (working) configuration. Only valid in the manual path — the unconfigured
 // first-run flow has no close affordance because the app can't run yet.
 export function closeManualOnboarding() {
-  pendingProviderOAuthId = null
-
   patch({ manual: false, requested: false, flow: { status: 'idle' } })
 }
 
@@ -465,12 +380,6 @@ export function completeDesktopOnboarding() {
   })
 }
 
-// "I'll choose a provider later" on the first-run picker. Persists the skip so
-// the blocking overlay never re-nags on future launches, and dismisses it now
-// so the user lands in the app. Chat won't work until a provider is connected
-// (from Settings → Providers or the model picker's "Add provider") — this only
-// stops forcing the choice up front. Distinct from completeDesktopOnboarding,
-// which marks the app actually configured.
 export function dismissFirstRunOnboarding() {
   clearPoll()
   writeCachedSkipped(true)
@@ -487,7 +396,7 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
   // switch a provider while already configured. Just ensure the provider
   // list is loaded and show the picker.
   if ($desktopOnboarding.get().manual) {
-    await refreshProviders()
+    patch({ mode: 'apikey', providers: [] })
 
     return false
   }
@@ -511,207 +420,15 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
     return false
   }
 
-  await refreshProviders()
+  patch({ mode: 'apikey', providers: [] })
 
   return false
 }
 
-// Open a sign-in URL via the desktop bridge, falling back to window.open
-// when the bridge isn't present (e.g. the web dashboard / dev preview) so
-// the flow never silently stalls in a waiting state. Mirrors the pattern in
-// apps/desktop/src/app/artifacts/index.tsx.
-async function openSignInUrl(url: string) {
-  if (window.hermesDesktop?.openExternal) {
-    try {
-      await window.hermesDesktop.openExternal(url)
-
-      return
-    } catch {
-      // Bridge present but failed (no OS handler, user denied, etc.). Fall
-      // through to window.open so the sign-in URL still opens and the flow
-      // doesn't strand a pending OAuth session in a waiting state.
-    }
-  }
-
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
-export async function startProviderOAuth(provider: OAuthProvider, ctx: OnboardingContext) {
-  clearPoll()
-
-  if (provider.flow === 'external') {
-    setFlow({ status: 'external_pending', provider, copied: false })
-
-    return
-  }
-
-  setFlow({ status: 'starting', provider })
-
-  try {
-    const start = await startOAuthLogin(provider.id)
-    const browserUrl = start.flow === 'device_code' ? start.verification_url : start.auth_url
-    await openSignInUrl(browserUrl)
-
-    if (start.flow === 'pkce') {
-      setFlow({ status: 'awaiting_user', provider, start, code: '' })
-
-      return
-    }
-
-    if (start.flow === 'loopback') {
-      // No code to paste: the redirect lands on the backend's loopback
-      // listener. Just wait and poll the session until the worker finishes.
-      setFlow({ status: 'awaiting_browser', provider, start })
-      pollTimer = window.setInterval(() => void pollSession(provider, start, ctx), POLL_MS)
-
-      return
-    }
-
-    setFlow({ status: 'polling', provider, start, copied: false })
-    pollTimer = window.setInterval(() => void pollSession(provider, start, ctx), POLL_MS)
-  } catch (error) {
-    setFlow({ status: 'error', provider, message: `Could not start sign-in: ${errMessage(error)}` })
-  }
-}
-
-// Poll a session-backed flow (device_code or loopback) until it resolves.
-// Both shapes only need the session_id to poll; the start is threaded
-// through to the error flow so the user can retry from the same context.
-async function pollSession(provider: OAuthProvider, start: DeviceStart | LoopbackStart, ctx: OnboardingContext) {
-  try {
-    const { error_message, status } = await pollOAuthSession(provider.id, start.session_id)
-
-    if (status === 'approved') {
-      clearPoll()
-      setFlow({ status: 'success', provider })
-      await completeWithModelConfirm(ctx, provider.name, [provider.id], reason =>
-        setFlow({
-          status: 'error',
-          provider,
-          message: providerResolutionFailure(reason)
-        })
-      )
-    } else if (status !== 'pending') {
-      clearPoll()
-      setFlow({ status: 'error', provider, start, message: error_message || `Sign-in ${status}.` })
-    }
-  } catch (error) {
-    clearPoll()
-    setFlow({ status: 'error', provider, start, message: `Polling failed: ${errMessage(error)}` })
-  }
-}
-
-export function setOnboardingCode(code: string) {
-  const { flow } = $desktopOnboarding.get()
-
-  if (flow.status === 'awaiting_user') {
-    setFlow({ ...flow, code })
-  }
-}
-
-export async function submitOnboardingCode(ctx: OnboardingContext) {
-  const { flow } = $desktopOnboarding.get()
-
-  if (flow.status !== 'awaiting_user' || !flow.code.trim()) {
-    return
-  }
-
-  const { provider, start, code } = flow
-  setFlow({ status: 'submitting', provider, start })
-
-  try {
-    const resp = await submitOAuthCode(provider.id, start.session_id, code.trim())
-
-    if (resp.ok && resp.status === 'approved') {
-      setFlow({ status: 'success', provider })
-      await completeWithModelConfirm(ctx, provider.name, [provider.id], reason =>
-        setFlow({
-          status: 'error',
-          provider,
-          message: providerResolutionFailure(reason)
-        })
-      )
-    } else {
-      setFlow({ status: 'error', provider, start, message: resp.message || 'Token exchange failed.' })
-    }
-  } catch (error) {
-    setFlow({ status: 'error', provider, start, message: errMessage(error) })
-  }
-}
-
 export function cancelOnboardingFlow() {
   clearPoll()
-  const sessionId = sessionIdFor($desktopOnboarding.get().flow)
-
-  if (sessionId) {
-    cancelOAuthSession(sessionId).catch(() => undefined)
-  }
 
   setFlow({ status: 'idle' })
-}
-
-async function copyAndFlash(text: string, predicate: (flow: OnboardingFlow) => boolean) {
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    return
-  }
-
-  const { flow } = $desktopOnboarding.get()
-
-  if (!predicate(flow) || !('copied' in flow)) {
-    return
-  }
-
-  setFlow({ ...flow, copied: true })
-  window.setTimeout(() => {
-    const current = $desktopOnboarding.get().flow
-
-    if (predicate(current) && 'copied' in current) {
-      setFlow({ ...current, copied: false })
-    }
-  }, COPY_FLASH_MS)
-}
-
-export async function copyDeviceCode() {
-  const { flow } = $desktopOnboarding.get()
-
-  if (flow.status !== 'polling') {
-    return
-  }
-
-  const sid = flow.start.session_id
-  await copyAndFlash(flow.start.user_code, f => f.status === 'polling' && f.start.session_id === sid)
-}
-
-export async function copyExternalCommand() {
-  const { flow } = $desktopOnboarding.get()
-
-  if (flow.status !== 'external_pending') {
-    return
-  }
-
-  const id = flow.provider.id
-  await copyAndFlash(flow.provider.cli_command, f => f.status === 'external_pending' && f.provider.id === id)
-}
-
-export async function recheckExternalSignin(ctx: OnboardingContext) {
-  const { flow } = $desktopOnboarding.get()
-
-  if (flow.status !== 'external_pending') {
-    return
-  }
-
-  const { provider } = flow
-  await completeWithModelConfirm(ctx, provider.name, [provider.id], reason =>
-    setFlow({
-      status: 'error',
-      provider,
-      message:
-        reason?.trim() ||
-        `QiQiClaw still cannot reach ${provider.name}. Run \`${provider.cli_command}\` in a terminal first.`
-    })
-  )
 }
 
 export async function saveOnboardingApiKey(envKey: string, value: string, label: string, ctx: OnboardingContext) {
