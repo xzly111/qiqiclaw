@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react'
 import { useEffect, useState } from 'react'
 
 import { BrandMark } from '@/components/brand-mark'
+import { FullFeatureDiagnosticsPanel } from '@/components/full-feature-diagnostics-panel'
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
 import { desktopBridge } from '@/lib/desktop-bridge'
@@ -169,6 +170,8 @@ export function AboutSettings() {
           hint={a.branchCommit(status?.branch ?? 'unknown', status?.currentSha?.slice(0, 7) ?? 'unknown')}
           title={a.automaticUpdates}
         />
+
+        <FullFeatureDiagnosticsPanel className="mt-6" />
 
         <UninstallSection />
       </div>

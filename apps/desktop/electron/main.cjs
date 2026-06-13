@@ -175,6 +175,7 @@ function loadInstallStamp() {
           builtAt: parsed.builtAt || null,
           dirty: Boolean(parsed.dirty),
           source: parsed.source || null,
+          installSource: parsed.installSource || null,
           path: p
         })
       }
@@ -4499,6 +4500,212 @@ function runQiQiClawCliJson(backend, profile, args, env, cwd, timeoutMs = 12_000
   })
 }
 
+const FULL_FEATURE_CHECKS = Object.freeze([
+  { id: 'telegram', label: 'Telegram gateway', module: 'telegram' },
+  { id: 'discord', label: 'Discord gateway and voice', module: 'discord' },
+  { id: 'aiohttp', label: 'Async HTTP runtime', module: 'aiohttp' },
+  { id: 'brotli', label: 'Brotli compression runtime', module: 'brotlicffi' },
+  { id: 'slack', label: 'Slack SDK', module: 'slack_sdk' },
+  { id: 'slack-bolt', label: 'Slack Bolt', module: 'slack_bolt' },
+  { id: 'dingtalk-stream', label: 'DingTalk stream', module: 'dingtalk_stream' },
+  { id: 'dingtalk-openapi', label: 'DingTalk OpenAPI', module: 'alibabacloud_dingtalk' },
+  { id: 'feishu-lark', label: 'Feishu/Lark SDK', module: 'lark_oapi' },
+  { id: 'wecom-xml', label: 'WeCom callback XML safety', module: 'defusedxml' },
+  { id: 'qr-code', label: 'QR code pairing', module: 'qrcode' },
+  { id: 'cli-menu', label: 'CLI menu', module: 'simple_term_menu' },
+  { id: 'acp', label: 'Agent Client Protocol', module: 'agent_client_protocol' },
+  { id: 'voice-transcription', label: 'Desktop voice transcription', module: 'faster_whisper' },
+  { id: 'voice-audio', label: 'Desktop voice audio IO', module: 'sounddevice' },
+  { id: 'voice-numeric', label: 'Desktop voice numeric runtime', module: 'numpy' },
+  { id: 'google-api', label: 'Google API client', module: 'googleapiclient' },
+  { id: 'google-oauth', label: 'Google OAuth helper', module: 'google_auth_oauthlib' },
+  { id: 'google-httplib2', label: 'Google auth httplib2', module: 'google_auth_httplib2' },
+  { id: 'youtube-transcript', label: 'YouTube transcript API', module: 'youtube_transcript_api' }
+])
+
+function isGiteeInstallBuild() {
+  const source = String(INSTALL_STAMP?.installSource || '').toLowerCase()
+  return source === 'gitee'
+}
+
+function runProcessCapture(command, args, options = {}) {
+  return new Promise(resolve => {
+    const timeoutMs = resolveTimeoutMs(options.timeoutMs, 30_000)
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      shell: Boolean(options.shell),
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      try {
+        child.kill()
+      } catch {
+        void 0
+      }
+      resolve({ code: null, ok: false, stdout, stderr: `${stderr}\nTimed out after ${timeoutMs}ms` })
+    }, timeoutMs)
+    if (typeof timer.unref === 'function') timer.unref()
+
+    child.stdout.on('data', chunk => {
+      stdout = (stdout + chunk.toString()).slice(-256 * 1024)
+    })
+    child.stderr.on('data', chunk => {
+      stderr = (stderr + chunk.toString()).slice(-256 * 1024)
+    })
+    child.once('error', error => {
+      clearTimeout(timer)
+      resolve({ code: null, ok: false, stdout, stderr: error.message })
+    })
+    child.once('exit', code => {
+      clearTimeout(timer)
+      resolve({ code, ok: code === 0, stdout, stderr })
+    })
+  })
+}
+
+async function checkGiteeFullFeatureReadiness() {
+  if (!isGiteeInstallBuild()) {
+    return {
+      enabled: false,
+      reason: 'Full feature diagnostics are only shown for Gitee desktop builds.',
+      installSource: INSTALL_STAMP?.installSource || null,
+      checkedAt: Date.now()
+    }
+  }
+
+  const connection = await ensureBackend(null)
+  const statusUrl = `${connection.baseUrl}/api/status`
+  try {
+    if (connection.authMode === 'oauth') {
+      await fetchJsonViaOauthSession(statusUrl, { timeoutMs: 8_000 })
+    } else {
+      await fetchJson(statusUrl, connection.token, { timeoutMs: 8_000 })
+    }
+  } catch (error) {
+    return {
+      enabled: true,
+      ok: false,
+      apiReachable: false,
+      installSource: INSTALL_STAMP?.installSource || null,
+      checkedAt: Date.now(),
+      message: `QiQiClaw API is not reachable: ${error instanceof Error ? error.message : String(error)}`,
+      checks: []
+    }
+  }
+
+  const python = getVenvPython(VENV_ROOT)
+  if (!fileExists(python)) {
+    return {
+      enabled: true,
+      ok: false,
+      apiReachable: true,
+      installSource: INSTALL_STAMP?.installSource || null,
+      checkedAt: Date.now(),
+      message: `QiQiClaw venv Python was not found at ${python}`,
+      checks: FULL_FEATURE_CHECKS.map(item => ({ ...item, ok: false, error: 'venv python missing' }))
+    }
+  }
+
+  const script =
+    'import importlib, json, sys\n' +
+    `items = ${JSON.stringify(FULL_FEATURE_CHECKS)}\n` +
+    'out = []\n' +
+    'for item in items:\n' +
+    '    try:\n' +
+    '        importlib.import_module(item["module"])\n' +
+    '        out.append({**item, "ok": True, "error": None})\n' +
+    '    except Exception as exc:\n' +
+    '        out.append({**item, "ok": False, "error": f"{type(exc).__name__}: {exc}"})\n' +
+    'print(json.dumps(out, ensure_ascii=False))\n'
+
+  const result = await runProcessCapture(python, ['-c', script], {
+    cwd: ACTIVE_HERMES_ROOT,
+    env: {
+      ...process.env,
+      HERMES_HOME,
+      QIQICLAW_HOME: HERMES_HOME,
+      PYTHONPATH: [ACTIVE_HERMES_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+    },
+    timeoutMs: 45_000
+  })
+
+  let checks = []
+  if (result.ok) {
+    try {
+      checks = JSON.parse(result.stdout)
+    } catch (error) {
+      checks = FULL_FEATURE_CHECKS.map(item => ({
+        ...item,
+        ok: false,
+        error: `diagnostic output parse failed: ${error instanceof Error ? error.message : String(error)}`
+      }))
+    }
+  } else {
+    checks = FULL_FEATURE_CHECKS.map(item => ({
+      ...item,
+      ok: false,
+      error: result.stderr.trim() || 'diagnostic command failed'
+    }))
+  }
+
+  const missing = checks.filter(item => !item.ok)
+  return {
+    enabled: true,
+    ok: missing.length === 0,
+    apiReachable: true,
+    installSource: INSTALL_STAMP?.installSource || null,
+    checkedAt: Date.now(),
+    message:
+      missing.length === 0
+        ? 'QiQiClaw API and full feature dependencies are ready.'
+        : `${missing.length} optional feature dependencies need repair.`,
+    checks
+  }
+}
+
+async function repairGiteeFullFeatureReadiness() {
+  if (!isGiteeInstallBuild()) {
+    return { ok: false, enabled: false, error: 'Repair is only available for Gitee desktop builds.' }
+  }
+
+  const script = path.join(ACTIVE_HERMES_ROOT, 'scripts', process.platform === 'win32' ? 'install.ps1' : 'install.sh')
+  if (!fileExists(script)) {
+    return { ok: false, enabled: true, error: `Installer script not found: ${script}` }
+  }
+
+  const env = {
+    ...process.env,
+    HERMES_HOME,
+    QIQICLAW_HOME: HERMES_HOME,
+    QIQICLAW_INSTALL_SOURCE: 'gitee',
+    HERMES_INSTALL_SOURCE: 'gitee'
+  }
+  const result =
+    process.platform === 'win32'
+      ? await runProcessCapture('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Stage', 'platform-sdks', '-NonInteractive', '-Json', '-Source', 'gitee'], {
+          cwd: ACTIVE_HERMES_ROOT,
+          env,
+          timeoutMs: 20 * 60_000
+        })
+      : await runProcessCapture('bash', [script, '--stage', 'platform-sdks', '--non-interactive', '--json', '--source', 'gitee'], {
+          cwd: ACTIVE_HERMES_ROOT,
+          env,
+          timeoutMs: 20 * 60_000
+        })
+
+  const tail = `${result.stdout}\n${result.stderr}`.trim().split(/\r?\n/).slice(-80)
+  return {
+    ok: result.ok,
+    enabled: true,
+    code: result.code,
+    output: tail,
+    error: result.ok ? null : result.stderr.trim() || result.stdout.trim() || 'platform-sdks repair failed'
+  }
+}
+
 function spawnQiQiClawCliLogged(backend, profile, args, env, cwd, label) {
   const child = spawn(backend.command, cliArgsForBackend(backend, profile, args), {
     cwd,
@@ -4909,6 +5116,8 @@ ipcMain.handle('hermes:backend:touch', async (_event, profile) => {
   return { ok: true }
 })
 ipcMain.handle('hermes:gateway:ws-url', async (_event, profile) => freshGatewayWsUrl(profile))
+ipcMain.handle('hermes:diagnostics:check', async () => checkGiteeFullFeatureReadiness())
+ipcMain.handle('hermes:diagnostics:repair', async () => repairGiteeFullFeatureReadiness())
 ipcMain.handle('hermes:bootstrap:reset', async () => {
   // Renderer's "Reload and retry" path. Clear the latched failure and
   // reset connection state so the next startQiQiClaw() call restarts the

@@ -80,6 +80,10 @@ export interface QiQiClawDesktopBridge {
       onBackendExit: (callback: (payload: BackendExit) => void) => () => void
       onPowerResume?: (callback: () => void) => () => void
       onBootProgress: (callback: (payload: DesktopBootProgress) => void) => () => void
+      diagnostics: {
+        check: () => Promise<DesktopFullFeatureDiagnostics>
+        repair: () => Promise<DesktopFullFeatureRepairResult>
+      }
       getBootstrapState: () => Promise<DesktopBootstrapState>
       resetBootstrap: () => Promise<{ ok: boolean }>
       repairBootstrap: () => Promise<{ ok: boolean }>
@@ -190,6 +194,33 @@ export interface DesktopUpdateProgress {
   percent: number | null
   error: string | null
   at: number
+}
+
+export interface DesktopFullFeatureCheck {
+  id: string
+  label: string
+  module: string
+  ok: boolean
+  error?: null | string
+}
+
+export interface DesktopFullFeatureDiagnostics {
+  enabled: boolean
+  ok?: boolean
+  apiReachable?: boolean
+  installSource?: null | string
+  checkedAt: number
+  message?: string
+  reason?: string
+  checks?: DesktopFullFeatureCheck[]
+}
+
+export interface DesktopFullFeatureRepairResult {
+  ok: boolean
+  enabled: boolean
+  code?: null | number
+  output?: string[]
+  error?: null | string
 }
 
 export interface QiQiClawConnection {

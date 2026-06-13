@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { FullFeatureDiagnosticsPanel } from '@/components/full-feature-diagnostics-panel'
 import { ModelPickerDialog } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -1241,6 +1242,8 @@ function ConfirmingModelPanel({
           onClick={onBegin}
         />
       </div>
+
+      <FullFeatureDiagnosticsPanel className="w-full max-w-xl text-left" />
 
       {/*
         ModelPickerDialog defaults to z-130 on its content, which renders

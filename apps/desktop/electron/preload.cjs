@@ -103,6 +103,10 @@ const desktopBridge = {
     ipcRenderer.on('hermes:boot-progress', listener)
     return () => ipcRenderer.removeListener('hermes:boot-progress', listener)
   },
+  diagnostics: {
+    check: () => ipcRenderer.invoke('hermes:diagnostics:check'),
+    repair: () => ipcRenderer.invoke('hermes:diagnostics:repair')
+  },
   // First-launch bootstrap progress -- emitted by the install.ps1 stage
   // runner in main.cjs (apps/desktop/electron/bootstrap-runner.cjs).
   // Renderer's install overlay subscribes to live events and queries the
