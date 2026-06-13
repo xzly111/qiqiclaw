@@ -1291,6 +1291,8 @@ export const en: Translations = {
     error: 'Error',
     hideOutput: 'Hide installer output',
     showOutput: 'Show installer output',
+    latestOutput: 'Latest output:',
+    logFile: 'Log file:',
     lines: count => `${count} line${count === 1 ? '' : 's'}`,
     noOutput: 'No output yet.',
     cancelling: 'Cancelling...',

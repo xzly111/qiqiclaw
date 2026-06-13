@@ -328,6 +328,7 @@ export interface DesktopBootstrapState {
   stages: Record<string, DesktopBootstrapStageResult>
   error: string | null
   log: Array<{ ts: number; stage: string | null; line: string; stream?: 'stdout' | 'stderr' }>
+  runLogPath: string | null
   startedAt: number | null
   completedAt: number | null
   unsupportedPlatform: DesktopBootstrapUnsupportedPlatform | null
@@ -344,6 +345,7 @@ export type DesktopBootstrapEvent =
       error?: string | null
     }
   | { type: 'log'; stage?: string | null; line: string; stream?: 'stdout' | 'stderr' }
+  | { type: 'run-log'; path: string }
   | { type: 'complete'; marker: Record<string, unknown> }
   | { type: 'failed'; stage?: string | null; error: string }
   | {

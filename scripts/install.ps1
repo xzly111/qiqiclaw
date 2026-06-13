@@ -1537,6 +1537,8 @@ function Install-Dependencies {
             $skipPipFallback = $true
         } else {
             Write-Warn "uv.lock sync failed (lockfile may be stale), falling back to PyPI resolve..."
+            Write-Warn "This is slower because dependencies must be resolved from the package index instead of the shipped lockfile."
+            Write-Info "If this repeats on a release build, update uv.lock with 'uv lock' and rebuild the desktop installer."
             $skipPipFallback = $false
         }
     } else {

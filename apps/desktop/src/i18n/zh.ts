@@ -1478,6 +1478,8 @@ export const zh: Translations = {
     error: '错误',
     hideOutput: '隐藏安装器输出',
     showOutput: '显示安装器输出',
+    latestOutput: '最新输出：',
+    logFile: '日志文件：',
     lines: count => `${count} 行`,
     noOutput: '暂无输出。',
     cancelling: '取消中...',

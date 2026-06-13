@@ -1397,6 +1397,8 @@ export const zhHant = defineLocale({
     error: '錯誤',
     hideOutput: '隱藏安裝程式輸出',
     showOutput: '顯示安裝程式輸出',
+    latestOutput: '最新輸出：',
+    logFile: '日誌檔案：',
     lines: count => `${count} 行`,
     noOutput: '暫無輸出。',
     cancelling: '取消中...',

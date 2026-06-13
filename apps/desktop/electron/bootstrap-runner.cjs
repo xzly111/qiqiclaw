@@ -563,6 +563,18 @@ function parseStageResult(stdout) {
 async function runStage({ scriptPath, installerKind, stage, emit, hermesHome, activeRoot, abortSignal, installStamp }) {
   const startedAt = Date.now()
   emit({ type: 'stage', name: stage.name, state: 'running' })
+  let lastLogAt = startedAt
+  const heartbeat = setInterval(() => {
+    const elapsedSec = Math.floor((Date.now() - startedAt) / 1000)
+    if (elapsedSec < 20) return
+    if (Date.now() - lastLogAt < 20000) return
+    lastLogAt = Date.now()
+    emit({
+      type: 'log',
+      stage: stage.name,
+      line: `[monitor] ${stage.name} is still running (${elapsedSec}s elapsed). Network downloads and dependency resolution can be quiet for several minutes on a fresh machine.`
+    })
+  }, 5000)
 
   const isPosix = installerKind === 'posix'
   const installSource = installSourceFromStamp(installStamp)
@@ -577,12 +589,22 @@ async function runStage({ scriptPath, installerKind, stage, emit, hermesHome, ac
         ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome })
       ]
     : ['-Stage', stage.name, '-NonInteractive', '-Json', '-Source', installSource.name, ...buildPinArgs(installStamp)]
-  const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
-    emit,
-    stageName: stage.name,
-    abortSignal,
-    hermesHome
-  })
+  const wrappedEmit = ev => {
+    if (ev && ev.type === 'log') lastLogAt = Date.now()
+    emit(ev)
+  }
+
+  let result
+  try {
+    result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
+      emit: wrappedEmit,
+      stageName: stage.name,
+      abortSignal,
+      hermesHome
+    })
+  } finally {
+    clearInterval(heartbeat)
+  }
 
   const durationMs = Date.now() - startedAt
 
@@ -697,6 +719,7 @@ async function runBootstrap(opts) {
       `stamp=${installStamp ? installStamp.commit.slice(0, 12) : '<none>'}; ` +
       `runLog=${runLog.path}`
   })
+  emit({ type: 'run-log', path: runLog.path })
 
   try {
     // 1. Resolve the platform installer.

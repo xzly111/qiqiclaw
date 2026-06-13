@@ -981,6 +981,8 @@ export interface Translations {
     error: string
     hideOutput: string
     showOutput: string
+    latestOutput: string
+    logFile: string
     lines: (count: number) => string
     noOutput: string
     cancelling: string

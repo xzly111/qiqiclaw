@@ -835,6 +835,7 @@ let bootstrapState = {
   stages: {},
   error: null,
   log: [],
+  runLogPath: null,
   startedAt: null,
   completedAt: null,
   unsupportedPlatform: null
@@ -861,6 +862,8 @@ function broadcastBootstrapEvent(ev) {
     if (bootstrapState.log.length > BOOTSTRAP_LOG_RING_MAX) {
       bootstrapState.log.splice(0, bootstrapState.log.length - BOOTSTRAP_LOG_RING_MAX)
     }
+  } else if (ev.type === 'run-log') {
+    bootstrapState.runLogPath = ev.path || null
   } else if (ev.type === 'complete') {
     bootstrapState.active = false
     bootstrapState.completedAt = Date.now()

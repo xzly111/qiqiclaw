@@ -1496,6 +1496,8 @@ install_deps() {
             return 0
         fi
         log_warn "uv.lock sync failed (see uv output above), falling back to PyPI resolve..."
+        log_warn "This is slower because dependencies must be resolved from the package index instead of the shipped lockfile."
+        log_info "If this repeats on a release build, update uv.lock with 'uv lock' and rebuild the desktop installer."
     else
         log_info "uv.lock not found — falling back to PyPI resolve (no hash verification)"
     fi

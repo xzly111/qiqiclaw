@@ -166,6 +166,7 @@ const EMPTY_STATE: DesktopBootstrapState = {
   stages: {},
   error: null,
   log: [],
+  runLogPath: null,
   startedAt: null,
   completedAt: null,
   unsupportedPlatform: null
@@ -217,6 +218,10 @@ function applyEvent(state: DesktopBootstrapState, ev: DesktopBootstrapEvent): De
     }
 
     return { ...state, log: next }
+  }
+
+  if (ev.type === 'run-log') {
+    return { ...state, runLogPath: ev.path || null }
   }
 
   if (ev.type === 'complete') {
@@ -417,6 +422,7 @@ export function DesktopInstallOverlay({ enabled = true, onCompleted }: DesktopIn
   const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
   const currentStartedAt = currentStage ? state.stages[currentStage]?.startedAt : null
   const currentElapsed = typeof currentStartedAt === 'number' ? formatElapsed(now - currentStartedAt) : ''
+  const latestLog = state.log.length > 0 ? state.log[state.log.length - 1] : null
 
   return (
     <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-background/90 backdrop-blur-md p-4">
@@ -448,6 +454,25 @@ export function DesktopInstallOverlay({ enabled = true, onCompleted }: DesktopIn
                   className={cn('h-full transition-all duration-300', failed ? 'bg-destructive' : 'bg-primary')}
                   style={{ width: `${progressPct}%` }}
                 />
+              </div>
+              <div className="mt-2 space-y-1 rounded-md border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                {latestLog ? (
+                  <div className="flex min-w-0 gap-1.5">
+                    <span className="flex-shrink-0">{copy.latestOutput}</span>
+                    <span className="min-w-0 truncate font-mono">
+                      {latestLog.stage ? `[${latestLog.stage}] ` : ''}
+                      {latestLog.line}
+                    </span>
+                  </div>
+                ) : (
+                  <div>{copy.noOutput}</div>
+                )}
+                {state.runLogPath ? (
+                  <div className="flex min-w-0 gap-1.5">
+                    <span className="flex-shrink-0">{copy.logFile}</span>
+                    <code className="min-w-0 truncate rounded bg-background/70 px-1 font-mono">{state.runLogPath}</code>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}

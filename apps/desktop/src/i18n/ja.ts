@@ -1431,6 +1431,8 @@ export const ja = defineLocale({
     error: 'エラー',
     hideOutput: 'インストーラーの出力を非表示',
     showOutput: 'インストーラーの出力を表示',
+    latestOutput: '最新の出力:',
+    logFile: 'ログファイル:',
     lines: count => `${count} 行`,
     noOutput: 'まだ出力がありません。',
     cancelling: 'キャンセル中...',
