@@ -317,7 +317,7 @@ emit_manifest() {
     if [ "$INCLUDE_DESKTOP" = true ]; then
         desktop_stage='{"name":"desktop","title":"Build desktop app","category":"runtime","needs_user_input":false},'
     fi
-    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download QIQI-Claw","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"platform-sdks","title":"Install messaging platform SDKs","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
+    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download QIQI-Claw","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"platform-sdks","title":"Install platform and skill SDKs","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},'"$desktop_stage"'{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
     printf '\n'
 }
 
@@ -1467,8 +1467,8 @@ install_deps() {
     # extras spec, NOT because they're equivalent in posture.
     if [ -f "uv.lock" ]; then
         log_info "Trying tier: hash-verified (uv.lock) ..."
-        log_info "(this resolves + downloads the curated [all] set — first run on a"
-        log_info " fresh venv can take 1-5 minutes; uv prints progress below)"
+        log_info "(this installs the core runtime first; optional platform SDKs are"
+        log_info " verified in the next stage with per-package progress)"
         # Stream uv's progress directly to the user instead of swallowing
         # it with `2>"$(mktemp)"`.  Two reasons:
         #   1. `--extra all --locked` against a fresh venv has to pull
@@ -1480,19 +1480,17 @@ install_deps() {
         #      uv error message was unreachable — the user just got the
         #      generic "lockfile may be stale" warning.
         #
-        # Critical flag choice: `--extra all`, NOT `--all-extras`.
-        #   --all-extras = every [project.optional-dependencies] key.
-        #                  This bypasses the curated `[all]` extra
-        #                  entirely and pulls e.g. [matrix] (which
-        #                  needs python-olm + make on Windows) and
-        #                  [rl] (git+https deps that fail offline).
-        #   --extra all  = install just the `[all]` extra's contents.
-        #                  This respects the curation in pyproject.toml.
+        # Keep the bootstrap's python-deps stage short and observable. The
+        # desktop runner executes optional platform/skill SDK checks as the
+        # following platform-sdks stage, where every large package gets its
+        # own visible install line. That avoids a fresh GUI install looking
+        # stuck inside one opaque optional-extras sync operation while still
+        # ending with the same feature coverage.
         # uv's own progress UI handles TTY detection and downgrades
         # gracefully when stdout/stderr aren't terminals.
-        if UV_PROJECT_ENVIRONMENT="$INSTALL_DIR/venv" $UV_CMD sync --extra all --locked; then
-            log_success "Main package installed (hash-verified via uv.lock)"
-            log_success "All dependencies installed"
+        if UV_PROJECT_ENVIRONMENT="$INSTALL_DIR/venv" $UV_CMD sync --locked --no-dev; then
+            log_success "Core package installed (hash-verified via uv.lock)"
+            log_success "Core dependencies installed"
             return 0
         fi
         log_warn "uv.lock sync failed (see uv output above), falling back to PyPI resolve..."
@@ -1508,63 +1506,10 @@ install_deps() {
     # fresh install all the way down to "core only" — the user should keep
     # everything else they signed up for.
     #
-    # Tier 1: [all] — the curated extra in pyproject.toml.
-    # Tier 2: [all] minus the currently-broken extras list (_BROKEN_EXTRAS).
-    #         Edit _BROKEN_EXTRAS below when something on PyPI breaks; this
-    #         lets users keep the rest of [all] when one transitive is
-    #         unavailable. The list of [all]'s contents is parsed from
-    #         pyproject.toml at runtime — there is NO hand-mirrored copy
-    #         to drift out of sync. If you want to change what [all]
-    #         contains, edit pyproject.toml only.
-    # Tier 3: bare `.` — last-resort so at least the core CLI launches.
-    #         Skipped tiers like "PyPI-only extras (no git deps)" used to
-    #         exist to dodge [rl] / [matrix] git+sdist deps; those are no
-    #         longer in [all] post-2026-05-12 lazy-install migration, so
-    #         a separate PyPI-only tier had no remaining content.
-    local _BROKEN_EXTRAS=()  # populate when an extra becomes unresolvable
-
-    # Parse [project.optional-dependencies].all from pyproject.toml.
-    # tomllib is stdlib on Python 3.11+ which uv's bootstrap guarantees.
-    # Falls back to a hand list if parse fails — defensive only.
-    local _ALL_EXTRAS_CSV
-    _ALL_EXTRAS_CSV="$(
-        "$PYTHON_PATH" - <<'PY' 2>/dev/null
-import re, sys, tomllib
-try:
-    with open("pyproject.toml", "rb") as fh:
-        data = tomllib.load(fh)
-    specs = data["project"]["optional-dependencies"]["all"]
-    extras = []
-    for s in specs:
-        m = re.search(r"(?:hermes-agent|qiqiclaw)\[([\w-]+)\]", s)
-        if m:
-            extras.append(m.group(1))
-    print(",".join(extras))
-except Exception as e:
-    print("", file=sys.stderr)
-    sys.exit(1)
-PY
-    )"
-    if [ -z "$_ALL_EXTRAS_CSV" ]; then
-        log_warn "Could not parse [all] from pyproject.toml; falling back to .[all] only."
-        _ALL_EXTRAS_CSV=""
-    fi
-
-    # Build "[all] minus broken" spec by filtering the parsed list.
-    local _SAFE_SPEC=".[all]"
-    if [ -n "$_ALL_EXTRAS_CSV" ] && [ "${#_BROKEN_EXTRAS[@]}" -gt 0 ]; then
-        local _SAFE_EXTRAS=()
-        local _e _b _skip
-        IFS=',' read -ra _ALL_EXTRAS_ARR <<< "$_ALL_EXTRAS_CSV"
-        for _e in "${_ALL_EXTRAS_ARR[@]}"; do
-            _skip=false
-            for _b in "${_BROKEN_EXTRAS[@]}"; do
-                if [ "$_e" = "$_b" ]; then _skip=true; break; fi
-            done
-            if [ "$_skip" = false ]; then _SAFE_EXTRAS+=("$_e"); fi
-        done
-        _SAFE_SPEC=".[$(IFS=,; echo "${_SAFE_EXTRAS[*]}")]"
-    fi
+    # Fallback tiers stay focused on the core package. Optional platform and
+    # skill dependencies are installed one-by-one in install_platform_sdks().
+    # That keeps the desktop bootstrap observable on clean machines and avoids
+    # a single optional dependency blocking the command-line baseline.
 
     ALL_INSTALL_LOG=$(mktemp)
     local _installed=false
@@ -1584,28 +1529,20 @@ PY
         return 1
     }
 
-    install_tier "all" ".[all]" \
-        || install_tier "all minus known-broken (${_BROKEN_EXTRAS[*]:-none})" "$_SAFE_SPEC" \
-        || install_tier "core only (no extras)" "."
+    install_tier "core runtime" "."
 
     rm -f "$ALL_INSTALL_LOG"
 
     if [ "$_installed" = false ]; then
         log_error "Package installation failed even with no extras."
         log_info "Check that build tools are installed: sudo apt install build-essential python3-dev"
-        log_info "Then re-run: cd $INSTALL_DIR && uv pip install -e '.[all]'"
+        log_info "Then re-run: cd $INSTALL_DIR && uv pip install -e '.'"
         exit 1
-    fi
-
-    if [ "$_tier_name" != "all (with RL/matrix extras)" ]; then
-        log_warn "Note: installed via fallback tier ($_tier_name)."
-        log_info "Some optional features may be missing. After resolving any"
-        log_info "PyPI/network issue, re-run: $UV_CMD pip install -e '.[all]'"
     fi
 
     log_success "Main package installed"
 
-    log_success "All dependencies installed"
+    log_success "Core dependencies installed"
 }
 
 setup_path() {
@@ -2077,17 +2014,17 @@ install_node_deps() {
 
 install_platform_sdks() {
     if [ "$USE_VENV" != true ]; then
-        log_info "Skipping messaging platform SDK verification (--no-venv)"
+        log_info "Skipping platform and skill SDK verification (--no-venv)"
         return 0
     fi
 
     local python_bin="$INSTALL_DIR/venv/bin/python"
     if [ ! -x "$python_bin" ]; then
-        log_warn "Skipping messaging platform SDK verification: $python_bin not found"
+        log_warn "Skipping platform and skill SDK verification: $python_bin not found"
         return 1
     fi
 
-    log_info "Verifying messaging platform SDKs..."
+    log_info "Verifying platform and skill SDKs..."
 
     local imports=(
         "Telegram:telegram:python-telegram-bot[webhooks]==22.6"
@@ -2101,6 +2038,12 @@ install_platform_sdks() {
         "Feishu/Lark:lark_oapi:lark-oapi==1.5.3"
         "WeCom callback XML safety:defusedxml:defusedxml==0.7.1"
         "QR code pairing:qrcode:qrcode==7.4.2"
+        "CLI menu:simple_term_menu:simple-term-menu==1.6.6"
+        "Agent Client Protocol:agent_client_protocol:agent-client-protocol==0.9.0"
+        "Google API client:googleapiclient:google-api-python-client==2.194.0"
+        "Google OAuth helper:google_auth_oauthlib:google-auth-oauthlib==1.3.1"
+        "Google auth httplib2:google_auth_httplib2:google-auth-httplib2==0.3.1"
+        "YouTube transcript API:youtube_transcript_api:youtube-transcript-api==1.2.4"
     )
 
     local missing=()
@@ -2122,7 +2065,7 @@ install_platform_sdks() {
     if ! "$python_bin" -m pip --version >/dev/null 2>&1; then
         log_info "Bootstrapping pip into venv..."
         "$python_bin" -m ensurepip --upgrade >/dev/null 2>&1 || {
-            log_error "ensurepip failed; cannot install missing messaging SDKs"
+            log_error "ensurepip failed; cannot install missing platform and skill SDKs"
             return 1
         }
     fi
@@ -2133,7 +2076,7 @@ install_platform_sdks() {
         if "$python_bin" -m pip install "$spec"; then
             log_success "Installed $label"
         else
-            log_error "Failed to install required messaging SDK: $label"
+            log_error "Failed to install required platform or skill SDK: $label"
             return 1
         fi
     done
@@ -2660,7 +2603,7 @@ run_stage_body() {
         venv)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             install_uv
             check_python
             setup_venv
@@ -2668,7 +2611,7 @@ run_stage_body() {
         python-deps)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             install_uv
             check_python
             install_deps
@@ -2676,44 +2619,44 @@ run_stage_body() {
         node-deps)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             check_node
             install_node_deps
             ;;
         path)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             setup_path
             ;;
         config)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             copy_config_templates
             ;;
         platform-sdks)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             install_platform_sdks
             ;;
         setup)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             run_setup_wizard
             ;;
         gateway)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             maybe_start_gateway
             ;;
         desktop)
             detect_os
             resolve_install_layout
-            require_install_dir
+            require_install_dir || return $?
             # Each stage runs in its own process, so the QiQiClaw-managed Node
             # provisioned during prerequisites/node-deps (at $HERMES_HOME/node/bin)
             # isn't on PATH here. check_node re-adds it (or installs if missing)

@@ -329,6 +329,38 @@ function resolveWindowsPowerShell() {
   return 'powershell.exe'
 }
 
+function createProgressPump({ emit, stageName, stream }) {
+  let buffer = ''
+  let lastLine = ''
+
+  const publish = line => {
+    const clean = String(line || '').replace(/\r/g, '').trimEnd()
+    if (!clean || clean === lastLine) return
+    lastLine = clean
+    if (emit) emit({ type: 'log', stage: stageName, line: clean, stream })
+  }
+
+  return {
+    push(chunk) {
+      buffer += chunk
+      while (true) {
+        const cr = buffer.indexOf('\r')
+        const lf = buffer.indexOf('\n')
+        if (cr === -1 && lf === -1) return
+        const next = cr === -1 ? lf : lf === -1 ? cr : Math.min(cr, lf)
+        publish(buffer.slice(0, next))
+        let advance = next + 1
+        if (buffer[next] === '\r' && buffer[next + 1] === '\n') advance += 1
+        buffer = buffer.slice(advance)
+      }
+    },
+    flush() {
+      publish(buffer)
+      buffer = ''
+    }
+  }
+}
+
 function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, hermesHome } = {}) {
   return new Promise((resolve, reject) => {
     const ps = process.platform === 'win32' ? resolveWindowsPowerShell() : 'pwsh'
@@ -367,29 +399,16 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, herme
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
 
-    // Stream stdout line-by-line so the renderer sees progress in real time.
-    let stdoutBuf = ''
+    const stdoutPump = createProgressPump({ emit, stageName, stream: 'stdout' })
     child.stdout.on('data', chunk => {
       stdout += chunk
-      stdoutBuf += chunk
-      let nl
-      while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
-        const line = stdoutBuf.slice(0, nl).replace(/\r$/, '')
-        stdoutBuf = stdoutBuf.slice(nl + 1)
-        if (line) emit && emit({ type: 'log', stage: stageName, line, stream: 'stdout' })
-      }
+      stdoutPump.push(chunk)
     })
 
-    let stderrBuf = ''
+    const stderrPump = createProgressPump({ emit, stageName, stream: 'stderr' })
     child.stderr.on('data', chunk => {
       stderr += chunk
-      stderrBuf += chunk
-      let nl
-      while ((nl = stderrBuf.indexOf('\n')) !== -1) {
-        const line = stderrBuf.slice(0, nl).replace(/\r$/, '')
-        stderrBuf = stderrBuf.slice(nl + 1)
-        if (line) emit && emit({ type: 'log', stage: stageName, line, stream: 'stderr' })
-      }
+      stderrPump.push(chunk)
     })
 
     child.on('error', err => {
@@ -399,9 +418,8 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, herme
 
     child.on('close', (code, signal) => {
       if (abortSignal) abortSignal.removeEventListener('abort', onAbort)
-      // Flush any trailing bytes
-      if (stdoutBuf) emit && emit({ type: 'log', stage: stageName, line: stdoutBuf, stream: 'stdout' })
-      if (stderrBuf) emit && emit({ type: 'log', stage: stageName, line: stderrBuf, stream: 'stderr' })
+      stdoutPump.flush()
+      stderrPump.flush()
       resolve({ stdout, stderr, code, signal, killed })
     })
   })
@@ -440,28 +458,16 @@ function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome 
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
 
-    let stdoutBuf = ''
+    const stdoutPump = createProgressPump({ emit, stageName, stream: 'stdout' })
     child.stdout.on('data', chunk => {
       stdout += chunk
-      stdoutBuf += chunk
-      let nl
-      while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
-        const line = stdoutBuf.slice(0, nl).replace(/\r$/, '')
-        stdoutBuf = stdoutBuf.slice(nl + 1)
-        if (line) emit && emit({ type: 'log', stage: stageName, line, stream: 'stdout' })
-      }
+      stdoutPump.push(chunk)
     })
 
-    let stderrBuf = ''
+    const stderrPump = createProgressPump({ emit, stageName, stream: 'stderr' })
     child.stderr.on('data', chunk => {
       stderr += chunk
-      stderrBuf += chunk
-      let nl
-      while ((nl = stderrBuf.indexOf('\n')) !== -1) {
-        const line = stderrBuf.slice(0, nl).replace(/\r$/, '')
-        stderrBuf = stderrBuf.slice(nl + 1)
-        if (line) emit && emit({ type: 'log', stage: stageName, line, stream: 'stderr' })
-      }
+      stderrPump.push(chunk)
     })
 
     child.on('error', err => {
@@ -471,8 +477,8 @@ function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome 
 
     child.on('close', (code, signal) => {
       if (abortSignal) abortSignal.removeEventListener('abort', onAbort)
-      if (stdoutBuf) emit && emit({ type: 'log', stage: stageName, line: stdoutBuf, stream: 'stdout' })
-      if (stderrBuf) emit && emit({ type: 'log', stage: stageName, line: stderrBuf, stream: 'stderr' })
+      stdoutPump.flush()
+      stderrPump.flush()
       resolve({ stdout, stderr, code, signal, killed })
     })
   })

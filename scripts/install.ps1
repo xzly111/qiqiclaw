@@ -1513,14 +1513,7 @@ function Install-Dependencies {
     # current extras spec, NOT because they're equivalent in posture.
     if (Test-Path "uv.lock") {
         Write-Info "Trying tier: hash-verified (uv.lock) ..."
-        # Critical flag choice: `--extra all`, NOT `--all-extras`.
-        #   --all-extras = every [project.optional-dependencies] key,
-        #                  bypassing the curated [all] extra. On Windows
-        #                  that means [matrix] -> python-olm (no wheel,
-        #                  needs `make` to build from sdist) and the
-        #                  install fails.
-        #   --extra all  = just the [all] extra's contents (curated).
-        #
+        Write-Info "Installing core runtime first; optional platform SDKs are verified in the next stage."
         # UV_PROJECT_ENVIRONMENT pins the sync target to our venv\.
         # Without it, modern uv (>=0.5) ignores VIRTUAL_ENV for `sync`
         # and creates a sibling .venv\ inside the repo -- leaving venv\
@@ -1528,12 +1521,12 @@ function Install-Dependencies {
         # in the wrong directory and imports fail with ModuleNotFoundError.
         # (Mirrors the same flag in scripts/install.sh::install_deps.)
         $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
-        & $UvCmd sync --extra all --locked
+        & $UvCmd sync --locked --no-dev
         if ($LASTEXITCODE -eq 0) {
-            Write-Success "Main package installed (hash-verified via uv.lock)"
-            $script:InstalledTier = "hash-verified (uv.lock)"
+            Write-Success "Core package installed (hash-verified via uv.lock)"
+            $script:InstalledTier = "core hash-verified (uv.lock)"
             # Skip the rest of the tiered cascade -- we already have a
-            # complete, hash-verified install.
+            # complete baseline install.
             $skipPipFallback = $true
         } else {
             Write-Warn "uv.lock sync failed (lockfile may be stale), falling back to PyPI resolve..."
@@ -1546,60 +1539,12 @@ function Install-Dependencies {
         $skipPipFallback = $false
     }
 
-    # Install main package.  Tiered fallback so a single flaky transitive
-    # doesn't silently drop everything.  Each tier's stdout/stderr is
-    # preserved -- no Out-Null swallowing -- so the user can see what failed.
-    #
-    # Tier 1: [all] -- the curated extra in pyproject.toml.
-    # Tier 2: [all] minus the currently-broken extras list ($brokenExtras).
-    #         Edit $brokenExtras below when something on PyPI breaks; this
-    #         lets users keep the rest of [all] when one transitive is
-    #         unavailable. The list of [all]'s contents is parsed from
-    #         pyproject.toml at runtime -- there is NO hand-mirrored copy
-    #         to drift out of sync.
-    # Tier 3: bare `.` -- last-resort so at least the core CLI launches.
-
-    # Currently-broken extras. Edit this list when an upstream package
-    # gets quarantined / yanked / breaks resolution. Empty means everything
-    # in [all] should be installable; populate with the names of extras
-    # whose deps are temporarily unavailable.
-    $brokenExtras = @()
-
-    # Parse [project.optional-dependencies].all from pyproject.toml.
-    # tomllib is stdlib on Python 3.11+ which the bootstrap guarantees.
-    $pythonExeForParse = if (-not $NoVenv) { "$InstallDir\venv\Scripts\python.exe" } else { (& $UvCmd python find $PythonVersion) }
-    $allExtras = @()
-    if (Test-Path $pythonExeForParse) {
-        $parsed = & $pythonExeForParse -c @"
-import re, sys, tomllib
-try:
-    with open('pyproject.toml', 'rb') as fh:
-        data = tomllib.load(fh)
-    specs = data['project']['optional-dependencies']['all']
-    out = []
-    for s in specs:
-        m = re.search(r'(?:hermes-agent|qiqiclaw)\[([\w-]+)\]', s)
-        if m: out.append(m.group(1))
-    print(','.join(out))
-except Exception:
-    sys.exit(1)
-"@ 2>$null
-        if ($LASTEXITCODE -eq 0 -and $parsed) {
-            $allExtras = $parsed.Trim().Split(',')
-        }
-    }
-    if (-not $allExtras -or $allExtras.Count -eq 0) {
-        Write-Warn "Could not parse [all] from pyproject.toml; Tier 2 will be a no-op."
-        $safeAll = "all"
-    } else {
-        $safeAll = ($allExtras | Where-Object { $brokenExtras -notcontains $_ }) -join ","
-    }
-    $brokenLabel = if ($brokenExtras) { ($brokenExtras -join ", ") } else { "none" }
+    # Fallback tiers stay focused on the core package. Optional platform and
+    # skill dependencies are installed one-by-one in Install-PlatformSdks so
+    # the desktop bootstrap remains observable on clean machines.
 
     $installTiers = @(
-        @{ Name = "all"; Spec = ".[all]" },
-        @{ Name = "all minus known-broken ($brokenLabel)"; Spec = ".[$safeAll]" },
-        @{ Name = "core only (no extras)"; Spec = "." }
+        @{ Name = "core runtime"; Spec = "." }
     )
     $installed = $skipPipFallback
     if (-not $skipPipFallback) {
@@ -1629,7 +1574,7 @@ except Exception:
     if (-not $NoVenv) {
         $venvPython = "$InstallDir\venv\Scripts\python.exe"
         if (-not (Test-Path $venvPython)) {
-            throw "Install reported success but $venvPython does not exist. The dependency sync likely landed in a sibling .venv\ directory. Re-run the installer; if it persists, manually: cd '$InstallDir'; Remove-Item -Recurse -Force venv,.venv; uv venv venv --python $PythonVersion; `$env:UV_PROJECT_ENVIRONMENT='$InstallDir\venv'; uv sync --extra all --locked"
+            throw "Install reported success but $venvPython does not exist. The dependency sync likely landed in a sibling .venv\ directory. Re-run the installer; if it persists, manually: cd '$InstallDir'; Remove-Item -Recurse -Force venv,.venv; uv venv venv --python $PythonVersion; `$env:UV_PROJECT_ENVIRONMENT='$InstallDir\venv'; uv sync --locked --no-dev"
         }
         # Relax EAP=Stop while running the import probe.  Python writes
         # deprecation warnings and import-system info to stderr; under
@@ -1647,7 +1592,7 @@ except Exception:
             $hint = if (Test-Path $sibling) {
                 "Detected sibling .venv\ at $sibling -- uv synced there instead of venv\. Recover with: cd '$InstallDir'; Remove-Item -Recurse -Force venv; Move-Item .venv venv"
             } else {
-                "Recover with: cd '$InstallDir'; `$env:UV_PROJECT_ENVIRONMENT='$InstallDir\venv'; uv sync --extra all --locked"
+                "Recover with: cd '$InstallDir'; `$env:UV_PROJECT_ENVIRONMENT='$InstallDir\venv'; uv sync --locked --no-dev"
             }
             throw "Baseline imports failed in $InstallDir\venv (dotenv/openai/rich/prompt_toolkit). The install completed but dependencies are not in the venv. $hint"
         }
@@ -2517,11 +2462,17 @@ function Install-PlatformSdks {
         @{ Label = "DingTalk OpenAPI"; Import = "alibabacloud_dingtalk"; Spec = "alibabacloud-dingtalk==2.2.42" },
         @{ Label = "Feishu/Lark"; Import = "lark_oapi"; Spec = "lark-oapi==1.5.3" },
         @{ Label = "WeCom callback XML safety"; Import = "defusedxml"; Spec = "defusedxml==0.7.1" },
-        @{ Label = "QR code pairing"; Import = "qrcode"; Spec = "qrcode==7.4.2" }
+        @{ Label = "QR code pairing"; Import = "qrcode"; Spec = "qrcode==7.4.2" },
+        @{ Label = "CLI menu"; Import = "simple_term_menu"; Spec = "simple-term-menu==1.6.6" },
+        @{ Label = "Agent Client Protocol"; Import = "agent_client_protocol"; Spec = "agent-client-protocol==0.9.0" },
+        @{ Label = "Google API client"; Import = "googleapiclient"; Spec = "google-api-python-client==2.194.0" },
+        @{ Label = "Google OAuth helper"; Import = "google_auth_oauthlib"; Spec = "google-auth-oauthlib==1.3.1" },
+        @{ Label = "Google auth httplib2"; Import = "google_auth_httplib2"; Spec = "google-auth-httplib2==0.3.1" },
+        @{ Label = "YouTube transcript API"; Import = "youtube_transcript_api"; Spec = "youtube-transcript-api==1.2.4" }
     )
 
     Write-Host ""
-    Write-Info "Verifying messaging platform SDKs ..."
+    Write-Info "Verifying platform and skill SDKs ..."
 
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
@@ -2832,7 +2783,7 @@ if ($IncludeDesktop) {
 $InstallStages += @(
     @{ Name = "path";             Title = "Adding QiQiClaw to PATH";                Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-Path" }
     @{ Name = "config-templates"; Title = "Writing configuration templates";      Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-ConfigTemplates" }
-    @{ Name = "platform-sdks";    Title = "Installing messaging platform SDKs";   Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-PlatformSdks" }
+    @{ Name = "platform-sdks";    Title = "Installing platform and skill SDKs";   Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-PlatformSdks" }
     @{ Name = "bootstrap-marker"; Title = "Marking install complete";              Category = "finalize";     NeedsUserInput = $false; Worker = "Stage-BootstrapMarker" }
     # Interactive stages.  In non-interactive mode these become no-ops; the
     # caller (GUI / CI) handles the equivalent UX themselves.
