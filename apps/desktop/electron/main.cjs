@@ -4523,9 +4523,12 @@ const FULL_FEATURE_CHECKS = Object.freeze([
   { id: 'youtube-transcript', label: 'YouTube transcript API', module: 'youtube_transcript_api' }
 ])
 
-function isGiteeInstallBuild() {
-  const source = String(INSTALL_STAMP?.installSource || '').toLowerCase()
-  return source === 'gitee'
+function fullFeatureInstallSource() {
+  const source = String(INSTALL_STAMP?.installSource || 'github').toLowerCase()
+  if (source === 'github' || source === 'gitee') {
+    return source
+  }
+  return null
 }
 
 function runProcessCapture(command, args, options = {}) {
@@ -4566,11 +4569,13 @@ function runProcessCapture(command, args, options = {}) {
   })
 }
 
-async function checkGiteeFullFeatureReadiness() {
-  if (!isGiteeInstallBuild()) {
+async function checkFullFeatureReadiness() {
+  const installSource = fullFeatureInstallSource()
+
+  if (!installSource) {
     return {
       enabled: false,
-      reason: 'Full feature diagnostics are only shown for Gitee desktop builds.',
+      reason: 'Full feature diagnostics are only shown for GitHub and Gitee desktop builds.',
       installSource: INSTALL_STAMP?.installSource || null,
       checkedAt: Date.now()
     }
@@ -4588,7 +4593,7 @@ async function checkGiteeFullFeatureReadiness() {
           enabled: true,
           ok: false,
           apiReachable: false,
-          installSource: INSTALL_STAMP?.installSource || null,
+          installSource,
           checkedAt: Date.now(),
           message: 'QiQiClaw API is reachable, but no configured model provider is ready yet.',
           checks: []
@@ -4602,7 +4607,7 @@ async function checkGiteeFullFeatureReadiness() {
           enabled: true,
           ok: false,
           apiReachable: false,
-          installSource: INSTALL_STAMP?.installSource || null,
+          installSource,
           checkedAt: Date.now(),
           message: 'QiQiClaw API is reachable, but no configured model provider is ready yet.',
           checks: []
@@ -4614,7 +4619,7 @@ async function checkGiteeFullFeatureReadiness() {
       enabled: true,
       ok: false,
       apiReachable: false,
-      installSource: INSTALL_STAMP?.installSource || null,
+      installSource,
       checkedAt: Date.now(),
       message: `QiQiClaw API is not reachable: ${error instanceof Error ? error.message : String(error)}`,
       checks: []
@@ -4627,7 +4632,7 @@ async function checkGiteeFullFeatureReadiness() {
       enabled: true,
       ok: false,
       apiReachable: true,
-      installSource: INSTALL_STAMP?.installSource || null,
+      installSource,
       checkedAt: Date.now(),
       message: `QiQiClaw venv Python was not found at ${python}`,
       checks: FULL_FEATURE_CHECKS.map(item => ({ ...item, ok: false, error: 'venv python missing' }))
@@ -4681,7 +4686,7 @@ async function checkGiteeFullFeatureReadiness() {
     enabled: true,
     ok: missing.length === 0,
     apiReachable: true,
-    installSource: INSTALL_STAMP?.installSource || null,
+    installSource,
     checkedAt: Date.now(),
     message:
       missing.length === 0
@@ -4691,9 +4696,11 @@ async function checkGiteeFullFeatureReadiness() {
   }
 }
 
-async function repairGiteeFullFeatureReadiness() {
-  if (!isGiteeInstallBuild()) {
-    return { ok: false, enabled: false, error: 'Repair is only available for Gitee desktop builds.' }
+async function repairFullFeatureReadiness() {
+  const installSource = fullFeatureInstallSource()
+
+  if (!installSource) {
+    return { ok: false, enabled: false, error: 'Repair is only available for GitHub and Gitee desktop builds.' }
   }
 
   const script = path.join(ACTIVE_HERMES_ROOT, 'scripts', process.platform === 'win32' ? 'install.ps1' : 'install.sh')
@@ -4705,17 +4712,17 @@ async function repairGiteeFullFeatureReadiness() {
     ...process.env,
     HERMES_HOME,
     QIQICLAW_HOME: HERMES_HOME,
-    QIQICLAW_INSTALL_SOURCE: 'gitee',
-    HERMES_INSTALL_SOURCE: 'gitee'
+    QIQICLAW_INSTALL_SOURCE: installSource,
+    HERMES_INSTALL_SOURCE: installSource
   }
   const result =
     process.platform === 'win32'
-      ? await runProcessCapture('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Stage', 'platform-sdks', '-NonInteractive', '-Json', '-Source', 'gitee'], {
+      ? await runProcessCapture('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Stage', 'platform-sdks', '-NonInteractive', '-Json', '-Source', installSource], {
           cwd: ACTIVE_HERMES_ROOT,
           env,
           timeoutMs: 20 * 60_000
         })
-      : await runProcessCapture('bash', [script, '--stage', 'platform-sdks', '--non-interactive', '--json', '--source', 'gitee'], {
+      : await runProcessCapture('bash', [script, '--stage', 'platform-sdks', '--non-interactive', '--json', '--source', installSource], {
           cwd: ACTIVE_HERMES_ROOT,
           env,
           timeoutMs: 20 * 60_000
@@ -5141,8 +5148,8 @@ ipcMain.handle('hermes:backend:touch', async (_event, profile) => {
   return { ok: true }
 })
 ipcMain.handle('hermes:gateway:ws-url', async (_event, profile) => freshGatewayWsUrl(profile))
-ipcMain.handle('hermes:diagnostics:check', async () => checkGiteeFullFeatureReadiness())
-ipcMain.handle('hermes:diagnostics:repair', async () => repairGiteeFullFeatureReadiness())
+ipcMain.handle('hermes:diagnostics:check', async () => checkFullFeatureReadiness())
+ipcMain.handle('hermes:diagnostics:repair', async () => repairFullFeatureReadiness())
 ipcMain.handle('hermes:bootstrap:reset', async () => {
   // Renderer's "Reload and retry" path. Clear the latched failure and
   // reset connection state so the next startQiQiClaw() call restarts the

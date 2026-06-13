@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 
-const DISMISSED_KEY = 'qiqiclaw:gitee-full-feature-diagnostics-dismissed'
+const DISMISSED_KEY = 'qiqiclaw:full-feature-diagnostics-dismissed'
 
 interface FullFeatureDiagnosticsDialogProps {
   triggerKey?: number

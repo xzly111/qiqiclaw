@@ -42,7 +42,7 @@ def test_platform_sdk_install_stage_has_soft_timeout() -> None:
     assert "continuing to the desktop" in windows
 
 
-def test_gitee_full_feature_diagnostics_waits_for_api_setup_and_prompts_user() -> None:
+def test_desktop_full_feature_diagnostics_waits_for_api_setup_and_prompts_user() -> None:
     main = DESKTOP_MAIN.read_text()
     controller = DESKTOP_CONTROLLER.read_text()
     dialog = DIAGNOSTICS_DIALOG.read_text()
@@ -51,7 +51,10 @@ def test_gitee_full_feature_diagnostics_waits_for_api_setup_and_prompts_user() -
     assert "/api/model/info" in main
     assert "no configured model provider is ready yet" in main
     assert "apiReachable: false" in main
-    assert "isGiteeInstallBuild" in main
+    assert "fullFeatureInstallSource" in main
+    assert "source === 'github' || source === 'gitee'" in main
+    assert "'--source', installSource" in main
+    assert "'-Source', installSource" in main
     assert "platform-sdks" in main
 
     assert "FullFeatureDiagnosticsDialog" in controller

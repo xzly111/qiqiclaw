@@ -1,20 +1,24 @@
 import { atom } from 'nanostores'
 
 import {
+  addCredentialPoolEntry,
   cancelOAuthSession,
+  discoverProviderModels,
   getGlobalModelOptions,
   getRecommendedDefaultModel,
+  getProviderCatalog,
   listOAuthProviders,
   pollOAuthSession,
   setEnvVar,
   setModelAssignment,
   startOAuthLogin,
   submitOAuthCode,
+  validateModelRoute,
   validateProviderCredential
 } from '@/hermes'
 import { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { notify, notifyError } from '@/store/notifications'
-import type { ModelOptionProvider, OAuthProvider, OAuthStartResponse } from '@/types/hermes'
+import type { ModelOptionProvider, OAuthProvider, OAuthStartResponse, ProviderCatalogEntry } from '@/types/hermes'
 
 type PkceStart = Extract<OAuthStartResponse, { flow: 'pkce' }>
 type DeviceStart = Extract<OAuthStartResponse, { flow: 'device_code' }>
@@ -77,6 +81,14 @@ export interface DesktopOnboardingState {
 export interface OnboardingContext {
   onCompleted?: () => void
   requestGateway: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
+}
+
+export interface OnboardingLlmProviderSetupInput {
+  apiKey: string
+  baseUrl?: string
+  credentialAlreadySaved?: boolean
+  model: string
+  provider: ProviderCatalogEntry
 }
 
 const CONFIGURED_CACHE_KEY = 'qiqiclaw-desktop-onboarded-v1'
@@ -735,6 +747,142 @@ export async function saveOnboardingApiKey(envKey: string, value: string, label:
     return { ok: true }
   } catch (error) {
     notifyError(error, `Could not save ${label}`)
+
+    return { ok: false, message: errMessage(error) }
+  }
+}
+
+export async function loadOnboardingLlmProviders(): Promise<ProviderCatalogEntry[]> {
+  const catalog = await getProviderCatalog()
+  const preferred = ['openrouter', 'deepseek', 'alibaba', 'gemini', 'xai', 'openai', 'anthropic', 'custom']
+
+  return (catalog.providers ?? [])
+    .filter(provider => provider.auth_type === 'api_key' && Boolean(provider.key_env || provider.slug === 'custom'))
+    .sort((a, b) => {
+      const ai = preferred.indexOf(a.slug)
+      const bi = preferred.indexOf(b.slug)
+
+      if (ai !== -1 || bi !== -1) {
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+      }
+
+      return (a.name || a.slug).localeCompare(b.name || b.slug)
+    })
+}
+
+export async function discoverOnboardingProviderModels(input: {
+  apiKey: string
+  baseUrl?: string
+  provider: ProviderCatalogEntry
+}): Promise<{ credentialSaved: boolean; message: string; models: string[]; ok: boolean }> {
+  const apiKey = input.apiKey.trim()
+  const baseUrl = input.baseUrl?.trim() ?? ''
+  const providerSlug = input.provider.slug
+
+  if (!providerSlug || !apiKey) {
+    return { ok: false, credentialSaved: false, message: '请选择提供商并输入 API Key。', models: [] }
+  }
+
+  if (providerSlug === 'custom' && !baseUrl) {
+    return { ok: false, credentialSaved: false, message: 'OpenAI 兼容 / 中转站 / 本地需要填写 Base URL。', models: [] }
+  }
+
+  let credentialSaved = false
+
+  try {
+    await addCredentialPoolEntry({
+      provider: providerSlug,
+      api_key: apiKey,
+      ...(baseUrl ? { base_url: baseUrl } : {}),
+      label: 'desktop onboarding'
+    })
+    credentialSaved = true
+
+    const discovered = await discoverProviderModels({
+      provider: providerSlug,
+      ...(baseUrl ? { base_url: baseUrl } : {})
+    })
+
+    if (!discovered.ok) {
+      return {
+        ok: false,
+        credentialSaved,
+        message: discovered.message || '没有发现可用模型。',
+        models: discovered.models ?? []
+      }
+    }
+
+    return {
+      ok: true,
+      credentialSaved,
+      message: discovered.message || `发现 ${discovered.models?.length ?? 0} 个模型。`,
+      models: discovered.models ?? []
+    }
+  } catch (error) {
+    return { ok: false, credentialSaved, message: errMessage(error), models: [] }
+  }
+}
+
+export async function completeOnboardingWithVerifiedApiKey(
+  input: OnboardingLlmProviderSetupInput,
+  ctx: OnboardingContext
+): Promise<{ message?: string; ok: boolean }> {
+  const apiKey = input.apiKey.trim()
+  const model = input.model.trim()
+  const baseUrl = input.baseUrl?.trim() ?? ''
+  const providerSlug = input.provider.slug
+  const providerLabel = input.provider.name || providerSlug
+
+  if (!providerSlug || !apiKey || !model) {
+    return { ok: false, message: '请选择提供商，输入 API Key，并选择或填写模型。' }
+  }
+
+  if (providerSlug === 'custom' && !baseUrl) {
+    return { ok: false, message: 'OpenAI 兼容 / 中转站 / 本地需要填写 Base URL。' }
+  }
+
+  try {
+    if (!input.credentialAlreadySaved) {
+      await addCredentialPoolEntry({
+        provider: providerSlug,
+        api_key: apiKey,
+        ...(baseUrl ? { base_url: baseUrl } : {}),
+        label: 'desktop onboarding'
+      })
+    }
+
+    const validation = await validateModelRoute({
+      provider: providerSlug,
+      model,
+      ...(baseUrl ? { base_url: baseUrl } : {}),
+      name: model
+    })
+
+    if (!validation.ok) {
+      return { ok: false, message: validation.message || '模型验证失败。' }
+    }
+
+    const assignment = await setModelAssignment({
+      scope: 'main',
+      provider: providerSlug,
+      model,
+      ...(baseUrl ? { base_url: baseUrl } : {})
+    })
+    notifyGatewayTools(assignment.gateway_tools)
+    await ctx.requestGateway('reload.env').catch(() => undefined)
+    const runtime = await checkRuntime(ctx)
+
+    if (!runtime.ready) {
+      return { ok: false, message: providerResolutionFailure(runtime.reason) }
+    }
+
+    notifyReady(providerLabel)
+    completeDesktopOnboarding()
+    ctx.onCompleted?.()
+
+    return { ok: true }
+  } catch (error) {
+    notifyError(error, `Could not configure ${providerLabel}`)
 
     return { ok: false, message: errMessage(error) }
   }

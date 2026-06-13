@@ -19,6 +19,7 @@ import {
   ExternalLink,
   KeyRound,
   Loader2,
+  RefreshCw,
   Terminal
 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
@@ -34,9 +35,12 @@ import {
   copyExternalCommand,
   DEFAULT_MANUAL_ONBOARDING_REASON,
   DEFAULT_ONBOARDING_REASON,
+  completeOnboardingWithVerifiedApiKey,
+  discoverOnboardingProviderModels,
   dismissFirstRunOnboarding,
   type OnboardingContext,
   type OnboardingFlow,
+  loadOnboardingLlmProviders,
   peekPendingProviderOAuth,
   recheckExternalSignin,
   refreshOnboarding,
@@ -47,7 +51,7 @@ import {
   startProviderOAuth,
   submitOnboardingCode
 } from '@/store/onboarding'
-import type { ModelOptionProvider, OAuthProvider } from '@/types/hermes'
+import type { ModelOptionProvider, OAuthProvider, ProviderCatalogEntry } from '@/types/hermes'
 
 interface DesktopOnboardingOverlayProps {
   enabled: boolean
@@ -435,17 +439,11 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
   const [showAll, setShowAll] = useState(readShowAll)
   const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
   const hasOauth = ordered.length > 0
-  const apiKeyOptions = useApiKeyCatalog()
 
   if (mode === 'apikey' || !hasOauth) {
     return (
       <div className="grid gap-3">
-        <ApiKeyForm
-          canGoBack={hasOauth}
-          onBack={() => setOnboardingMode('oauth')}
-          onSave={(envKey, value, name) => saveOnboardingApiKey(envKey, value, name, ctx)}
-          options={apiKeyOptions}
-        />
+        <OnboardingApiWizard canGoBack={hasOauth} ctx={ctx} onBack={() => setOnboardingMode('oauth')} />
         {manual ? null : (
           <div className="flex justify-center border-t border-(--ui-stroke-tertiary) pt-3">
             <ChooseLaterLink />
@@ -621,6 +619,251 @@ export function ProviderRow({
       </div>
       <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
     </button>
+  )
+}
+
+type ApiWizardStatus = 'idle' | 'loading' | 'discovering' | 'validating' | 'ok' | 'error'
+
+function isCustomProvider(provider: ProviderCatalogEntry | null) {
+  return provider?.slug === 'custom'
+}
+
+function OnboardingApiWizard({
+  canGoBack,
+  ctx,
+  onBack
+}: {
+  canGoBack: boolean
+  ctx: OnboardingContext
+  onBack: () => void
+}) {
+  const [providers, setProviders] = useState<ProviderCatalogEntry[]>([])
+  const [providerSlug, setProviderSlug] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [credentialSaved, setCredentialSaved] = useState(false)
+  const [model, setModel] = useState('')
+  const [models, setModels] = useState<string[]>([])
+  const [status, setStatus] = useState<ApiWizardStatus>('loading')
+  const [message, setMessage] = useState('正在读取 LLM 提供商列表。')
+
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      setStatus('loading')
+      setMessage('正在读取 LLM 提供商列表。')
+      try {
+        const rows = await loadOnboardingLlmProviders()
+        if (cancelled) {
+          return
+        }
+
+        setProviders(rows)
+        const first = rows[0]
+        setProviderSlug(first?.slug ?? '')
+        setBaseUrl(first?.slug === 'custom' ? '' : first?.base_url || '')
+        setStatus(rows.length > 0 ? 'idle' : 'error')
+        setMessage(rows.length > 0 ? '请选择提供商并输入 API Key，然后发现模型。' : '未能读取可用的 API Key 提供商。')
+      } catch (error) {
+        if (!cancelled) {
+          setStatus('error')
+          setMessage(error instanceof Error ? error.message : String(error))
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selectedProvider = providers.find(provider => provider.slug === providerSlug) ?? null
+  const needsBaseUrl = isCustomProvider(selectedProvider)
+  const canDiscover = Boolean(selectedProvider && apiKey.trim() && (!needsBaseUrl || baseUrl.trim()))
+  const canValidate = Boolean(canDiscover && model.trim())
+  const busy = status === 'loading' || status === 'discovering' || status === 'validating'
+  const modelOptions = [...new Set([...models, model].filter(Boolean))]
+
+  const chooseProvider = (slug: string) => {
+    const next = providers.find(provider => provider.slug === slug) ?? null
+    setProviderSlug(slug)
+    setBaseUrl(next?.slug === 'custom' ? '' : next?.base_url || '')
+    setApiKey('')
+    setCredentialSaved(false)
+    setModel('')
+    setModels([])
+    setStatus('idle')
+    setMessage('已切换提供商，请输入 API Key 后发现模型。')
+  }
+
+  const discover = async () => {
+    if (!selectedProvider || !canDiscover || busy) {
+      return
+    }
+
+    setStatus('discovering')
+    setMessage('正在保存凭证并发现模型。')
+    const result = await discoverOnboardingProviderModels({
+      provider: selectedProvider,
+      apiKey,
+      baseUrl
+    })
+    setModels(result.models)
+    setCredentialSaved(result.credentialSaved)
+    if (result.models[0] && !model.trim()) {
+      setModel(result.models[0])
+    }
+    setStatus(result.ok ? 'ok' : 'error')
+    setMessage(result.message)
+  }
+
+  const validate = async () => {
+    if (!selectedProvider || !canValidate || busy) {
+      return
+    }
+
+    setStatus('validating')
+    setMessage('正在验证模型并写入主会话配置。')
+    const result = await completeOnboardingWithVerifiedApiKey(
+      {
+        provider: selectedProvider,
+        apiKey,
+        baseUrl,
+        model,
+        credentialAlreadySaved: credentialSaved
+      },
+      ctx
+    )
+
+    if (!result.ok) {
+      setStatus('error')
+      setMessage(result.message || '验证失败。')
+    }
+  }
+
+  return (
+    <div className="grid gap-4">
+      {canGoBack ? (
+        <Button
+          className="-mt-1 self-start font-medium"
+          onClick={onBack}
+          size="xs"
+          type="button"
+          variant="text"
+        >
+          <ChevronLeft className="size-3" />
+          返回登录方式
+        </Button>
+      ) : null}
+
+      <div className="grid gap-3 rounded-md border border-border/50 p-3">
+        <div>
+          <h3 className="text-sm font-semibold">配置 LLM API</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            与设置里的提供商页面使用同一套后端接口；验证通过后写入主模型并进入桌面端。
+          </p>
+        </div>
+
+        <label className="grid gap-1 text-xs font-medium">
+          提供商
+          <select
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            disabled={busy || providers.length === 0}
+            onChange={event => chooseProvider(event.target.value)}
+            value={providerSlug}
+          >
+            {providers.map(provider => (
+              <option key={provider.slug} value={provider.slug}>
+                {provider.name || provider.slug}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {needsBaseUrl ? (
+          <label className="grid gap-1 text-xs font-medium">
+            Base URL
+            <Input
+              autoComplete="off"
+              disabled={busy}
+              onChange={event => {
+                setBaseUrl(event.target.value)
+                setCredentialSaved(false)
+              }}
+              placeholder="https://relay.example.com/v1 或 http://localhost:1234/v1"
+              value={baseUrl}
+            />
+          </label>
+        ) : selectedProvider?.base_url ? (
+          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Base URL </span>
+            <span className="font-mono">{selectedProvider.base_url}</span>
+          </div>
+        ) : null}
+
+        <label className="grid gap-1 text-xs font-medium">
+          API Key
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            disabled={busy}
+            onChange={event => {
+              setApiKey(event.target.value)
+              setCredentialSaved(false)
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && canDiscover) {
+                void discover()
+              }
+            }}
+            placeholder={selectedProvider?.key_env || '粘贴 API Key'}
+            type="password"
+            value={apiKey}
+          />
+        </label>
+
+        <div className="grid gap-1 text-xs font-medium">
+          <div className="flex items-center justify-between gap-2">
+            <span>模型</span>
+            <Button disabled={!canDiscover || busy} onClick={() => void discover()} size="xs" type="button" variant="outline">
+              {status === 'discovering' ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+              发现模型
+            </Button>
+          </div>
+          <Input
+            autoComplete="off"
+            disabled={busy}
+            list={modelOptions.length ? 'onboarding-provider-models' : undefined}
+            onChange={event => setModel(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && canValidate) {
+                void validate()
+              }
+            }}
+            placeholder="先发现模型，也可以手动填写模型 ID"
+            value={model}
+          />
+          {modelOptions.length > 0 ? (
+            <datalist id="onboarding-provider-models">
+              {modelOptions.map(value => (
+                <option key={value} value={value} />
+              ))}
+            </datalist>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className={cn('min-w-0 flex-1 text-xs', status === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
+            {message}
+          </p>
+          <Button disabled={!canValidate || busy} onClick={() => void validate()} type="button">
+            {status === 'validating' ? <Loader2 className="animate-spin" /> : <Check />}
+            验证模型并进入
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 

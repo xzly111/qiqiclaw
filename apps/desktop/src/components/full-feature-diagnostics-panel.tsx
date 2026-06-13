@@ -58,7 +58,7 @@ export function FullFeatureDiagnosticsPanel({ className, showTitle = true }: Ful
       return
     }
 
-    if (!window.confirm('检测到部分辅助功能依赖缺失，是否现在修复？修复会使用码云源继续安装缺失依赖。')) {
+    if (!window.confirm('检测到部分辅助功能依赖缺失，是否现在修复？修复会使用当前安装包对应的源继续安装缺失依赖。')) {
       return
     }
 
