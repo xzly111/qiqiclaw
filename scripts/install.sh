@@ -64,6 +64,7 @@ PYTHON_VERSION="3.11"
 NODE_VERSION="22"
 NODE_DIST_BASE_URL="${QIQICLAW_NODE_DIST_BASE_URL:-https://nodejs.org/dist}"
 UV_INSTALLER_URL="${QIQICLAW_UV_INSTALLER_URL:-https://astral.sh/uv/install.sh}"
+PLATFORM_SDKS_TIMEOUT_SECONDS="${QIQICLAW_PLATFORM_SDKS_TIMEOUT_SECONDS:-600}"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
 #   code at /usr/local/lib/qiqiclaw, command at /usr/local/bin/hermes,
@@ -71,6 +72,39 @@ UV_INSTALLER_URL="${QIQICLAW_UV_INSTALLER_URL:-https://astral.sh/uv/install.sh}"
 #   and keeps Docker bind-mounted /root/ volumes lean.
 ROOT_FHS_LAYOUT=false
 DETECTED_BROWSER_EXECUTABLE=""
+
+run_command_with_timeout() {
+    local timeout_seconds="$1"
+    shift
+
+    if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [ "$timeout_seconds" -le 0 ]; then
+        "$@"
+        return $?
+    fi
+
+    "$@" &
+    local command_pid=$!
+    local started_at now elapsed
+    started_at=$(date +%s)
+
+    while kill -0 "$command_pid" 2>/dev/null; do
+        now=$(date +%s)
+        elapsed=$((now - started_at))
+        if [ "$elapsed" -ge "$timeout_seconds" ]; then
+            kill "$command_pid" 2>/dev/null || true
+            sleep 2
+            kill -9 "$command_pid" 2>/dev/null || true
+            wait "$command_pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+    done
+
+    local command_status
+    wait "$command_pid"
+    command_status=$?
+    return "$command_status"
+}
 
 # Options
 USE_VENV=true
@@ -2069,7 +2103,7 @@ install_platform_sdks() {
     local python_bin="$INSTALL_DIR/venv/bin/python"
     if [ ! -x "$python_bin" ]; then
         log_warn "Skipping platform and skill SDK verification: $python_bin not found"
-        return 1
+        return 0
     fi
 
     log_info "Verifying platform and skill SDKs..."
@@ -2116,19 +2150,45 @@ install_platform_sdks() {
     if ! "$python_bin" -m pip --version >/dev/null 2>&1; then
         log_info "Bootstrapping pip into venv..."
         "$python_bin" -m ensurepip --upgrade >/dev/null 2>&1 || {
-            log_error "ensurepip failed; cannot install missing platform and skill SDKs"
-            return 1
+            log_warn "ensurepip failed; missing platform and skill SDKs can be repaired from the desktop after API setup"
+            return 0
         }
+    fi
+
+    local timeout_seconds="$PLATFORM_SDKS_TIMEOUT_SECONDS"
+    if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]]; then
+        timeout_seconds=600
+    fi
+    local deadline=0
+    if [ "$timeout_seconds" -gt 0 ]; then
+        deadline=$(($(date +%s) + timeout_seconds))
+        log_info "Installing missing platform and skill SDKs with a ${timeout_seconds}s total time limit..."
     fi
 
     for item in "${missing[@]}"; do
         IFS=':' read -r label module spec <<< "$item"
+        local remaining="$timeout_seconds"
+        if [ "$deadline" -gt 0 ]; then
+            remaining=$((deadline - $(date +%s)))
+            if [ "$remaining" -le 0 ]; then
+                log_warn "Platform and skill SDK install reached the ${timeout_seconds}s time limit; continuing to the desktop."
+                log_warn "After API setup, QiQiClaw will report any missing full-feature dependencies and offer repair."
+                return 0
+            fi
+        fi
+
         log_info "Installing $label: $spec"
-        if "$python_bin" -m pip install "$spec"; then
+        run_command_with_timeout "$remaining" "$python_bin" -m pip install "$spec"
+        local install_status=$?
+        if [ "$install_status" -eq 0 ]; then
             log_success "Installed $label"
+        elif [ "$install_status" -eq 124 ]; then
+            log_warn "Platform and skill SDK install reached the ${timeout_seconds}s time limit while installing $label; continuing to the desktop."
+            log_warn "After API setup, QiQiClaw will report any missing full-feature dependencies and offer repair."
+            return 0
         else
-            log_error "Failed to install required platform or skill SDK: $label"
-            return 1
+            log_warn "Failed to install optional platform or skill SDK: $label"
+            log_warn "After API setup, QiQiClaw will report missing full-feature dependencies and offer repair."
         fi
     done
 }

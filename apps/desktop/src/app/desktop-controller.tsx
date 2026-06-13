@@ -6,6 +6,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import { BootFailureOverlay } from '@/components/boot-failure-overlay'
 import { DesktopInstallOverlay } from '@/components/desktop-install-overlay'
 import { DesktopOnboardingOverlay } from '@/components/desktop-onboarding-overlay'
+import { FullFeatureDiagnosticsDialog } from '@/components/full-feature-diagnostics-dialog'
 import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overlay'
 import { Pane, PaneMain } from '@/components/pane-shell'
 import { useSkinCommand } from '@/themes/use-skin-command'
@@ -736,6 +737,7 @@ export function DesktopController() {
       />
       <ModelPickerOverlay gateway={gatewayRef.current || undefined} onSelect={selectModel} />
       <ModelVisibilityOverlay gateway={gatewayRef.current || undefined} onOpenProviders={openProviderSettings} />
+      <FullFeatureDiagnosticsDialog />
       <UpdatesOverlay />
       <GatewayConnectingOverlay />
       <BootFailureOverlay />

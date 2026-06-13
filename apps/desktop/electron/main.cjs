@@ -4578,11 +4578,36 @@ async function checkGiteeFullFeatureReadiness() {
 
   const connection = await ensureBackend(null)
   const statusUrl = `${connection.baseUrl}/api/status`
+  const modelInfoUrl = `${connection.baseUrl}/api/model/info`
   try {
     if (connection.authMode === 'oauth') {
       await fetchJsonViaOauthSession(statusUrl, { timeoutMs: 8_000 })
+      const modelInfo = await fetchJsonViaOauthSession(modelInfoUrl, { timeoutMs: 8_000 })
+      if (!modelInfo?.model || !modelInfo?.provider) {
+        return {
+          enabled: true,
+          ok: false,
+          apiReachable: false,
+          installSource: INSTALL_STAMP?.installSource || null,
+          checkedAt: Date.now(),
+          message: 'QiQiClaw API is reachable, but no configured model provider is ready yet.',
+          checks: []
+        }
+      }
     } else {
       await fetchJson(statusUrl, connection.token, { timeoutMs: 8_000 })
+      const modelInfo = await fetchJson(modelInfoUrl, connection.token, { timeoutMs: 8_000 })
+      if (!modelInfo?.model || !modelInfo?.provider) {
+        return {
+          enabled: true,
+          ok: false,
+          apiReachable: false,
+          installSource: INSTALL_STAMP?.installSource || null,
+          checkedAt: Date.now(),
+          message: 'QiQiClaw API is reachable, but no configured model provider is ready yet.',
+          checks: []
+        }
+      }
     }
   } catch (error) {
     return {

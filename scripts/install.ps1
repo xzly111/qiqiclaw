@@ -102,6 +102,10 @@ $PythonVersion = "3.11"
 $NodeVersion = "22"
 $NodeDistBaseUrl = "https://nodejs.org/dist"
 $GitForWindowsBaseUrl = "https://github.com/git-for-windows/git/releases/download"
+$PlatformSdksTimeoutSeconds = 600
+if ($env:QIQICLAW_PLATFORM_SDKS_TIMEOUT_SECONDS -and $env:QIQICLAW_PLATFORM_SDKS_TIMEOUT_SECONDS -match '^\d+$') {
+    $PlatformSdksTimeoutSeconds = [int]$env:QIQICLAW_PLATFORM_SDKS_TIMEOUT_SECONDS
+}
 
 function Initialize-InstallSource {
     switch ($Source.ToLowerInvariant()) {
@@ -2569,14 +2573,51 @@ function Install-PlatformSdks {
             }
         }
 
+        $deadline = $null
+        if ($PlatformSdksTimeoutSeconds -gt 0) {
+            $deadline = (Get-Date).AddSeconds($PlatformSdksTimeoutSeconds)
+            Write-Info "Installing missing platform and skill SDKs with a $PlatformSdksTimeoutSeconds second total time limit..."
+        }
+
         foreach ($sdk in $missing) {
+            $remainingSeconds = $PlatformSdksTimeoutSeconds
+            if ($deadline -ne $null) {
+                $remainingSeconds = [int][Math]::Floor(($deadline - (Get-Date)).TotalSeconds)
+                if ($remainingSeconds -le 0) {
+                    Write-Warn "Platform and skill SDK install reached the $PlatformSdksTimeoutSeconds second time limit; continuing to the desktop."
+                    Write-Warn "After API setup, QiQiClaw will report any missing full-feature dependencies and offer repair."
+                    return
+                }
+            }
+
             Write-Info "  Installing $($sdk.Label): $($sdk.Spec) ..."
-            & $pythonExe -m pip install $sdk.Spec 2>&1 | ForEach-Object { Write-Host "    $_" }
-            if ($LASTEXITCODE -eq 0) {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $pythonExe
+            $psi.Arguments = "-m pip install `"$($sdk.Spec)`""
+            $psi.WorkingDirectory = $InstallDir
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $process = [System.Diagnostics.Process]::Start($psi)
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            $completed = $process.WaitForExit([Math]::Max(1, $remainingSeconds) * 1000)
+            if (-not $completed) {
+                try { $process.Kill() } catch {}
+                Write-Warn "Platform and skill SDK install reached the $PlatformSdksTimeoutSeconds second time limit while installing $($sdk.Label); continuing to the desktop."
+                Write-Warn "After API setup, QiQiClaw will report any missing full-feature dependencies and offer repair."
+                return
+            }
+            $stdout = $stdoutTask.Result
+            $stderr = $stderrTask.Result
+            foreach ($line in (($stdout + "`n" + $stderr) -split "`r?`n")) {
+                if ($line.Trim()) { Write-Host "    $line" }
+            }
+            if ($process.ExitCode -eq 0) {
                 Write-Success "  Installed $($sdk.Label)"
             } else {
                 Write-Warn "  Failed to install $($sdk.Spec). Recover manually: $pythonExe -m pip install `"$($sdk.Spec)`""
-                throw "Failed to install required messaging SDK: $($sdk.Label)"
+                Write-Warn "  QiQiClaw will report missing full-feature dependencies and offer repair after API setup."
             }
         }
     } finally {
