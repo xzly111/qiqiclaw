@@ -13,14 +13,11 @@ import { getGlobalModelOptions } from '@/hermes'
 import { useI18n } from '@/i18n'
 import {
   Check,
-  ChevronDown,
   ChevronLeft,
-  ChevronRight,
   ExternalLink,
   KeyRound,
   Loader2,
   RefreshCw,
-  Terminal
 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
@@ -37,7 +34,6 @@ import {
   DEFAULT_ONBOARDING_REASON,
   completeOnboardingWithVerifiedApiKey,
   discoverOnboardingProviderModels,
-  dismissFirstRunOnboarding,
   type OnboardingContext,
   type OnboardingFlow,
   loadOnboardingLlmProviders,
@@ -46,7 +42,6 @@ import {
   refreshOnboarding,
   saveOnboardingApiKey,
   setOnboardingCode,
-  setOnboardingMode,
   setOnboardingModel,
   startProviderOAuth,
   submitOnboardingCode
@@ -183,13 +178,7 @@ const PROVIDER_DISPLAY: Record<string, { order: number; title: string }> = {
   'claude-code': { order: 6, title: 'Anthropic OAuth: Required Extra Usage Credits to Use Subscription' }
 }
 
-const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
-
 const providerTitle = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.title ?? p.name
-const orderOf = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id]?.order ?? 99
-
-export const sortProviders = (providers: OAuthProvider[]) =>
-  [...providers].sort((a, b) => orderOf(a) - orderOf(b) || a.name.localeCompare(b.name))
 
 // Exit choreography, mirroring the gateway "connecting" overlay's timing:
 // text-out (360ms: CONNECTED fades down, rest scrambles+fades) → hold (300ms)
@@ -406,220 +395,16 @@ function Header() {
 
   return (
     <div className="bg-(--ui-chat-bubble-background) px-5 pt-5 pb-1">
-      <h2 className="text-[0.9375rem] font-semibold tracking-tight">{t.onboarding.headerTitle}</h2>
-      <p className="mt-1 max-w-xl text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">{t.onboarding.headerDesc}</p>
+      <h2 className="text-[0.9375rem] font-semibold tracking-tight">配置 QiQiClaw API 提供商</h2>
+      <p className="mt-1 max-w-xl text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">
+        选择 LLM 提供商，输入 API Key，验证模型后进入桌面端。
+      </p>
     </div>
   )
-}
-
-export const FEATURED_ID = 'nous'
-const SHOW_ALL_KEY = 'hermes-onboarding-show-all-v1'
-
-const readShowAll = () => {
-  try {
-    return window.localStorage.getItem(SHOW_ALL_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-const persistShowAll = (value: boolean) => {
-  try {
-    window.localStorage.setItem(SHOW_ALL_KEY, value ? '1' : '0')
-  } catch {
-    // localStorage unavailable — degrade silently.
-  }
-
-  return value
 }
 
 export function Picker({ ctx }: { ctx: OnboardingContext }) {
-  const { t } = useI18n()
-  const { manual, mode, providers } = useStore($desktopOnboarding)
-  const [showAll, setShowAll] = useState(readShowAll)
-  const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
-  const hasOauth = ordered.length > 0
-
-  if (mode === 'apikey' || !hasOauth) {
-    return (
-      <div className="grid gap-3">
-        <OnboardingApiWizard canGoBack={hasOauth} ctx={ctx} onBack={() => setOnboardingMode('oauth')} />
-        {manual ? null : (
-          <div className="flex justify-center border-t border-(--ui-stroke-tertiary) pt-3">
-            <ChooseLaterLink />
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (providers === null) {
-    return <Status>{t.onboarding.lookingUpProviders}</Status>
-  }
-
-  const select = (p: OAuthProvider) => void startProviderOAuth(p, ctx)
-  const featured = ordered.find(p => p.id === FEATURED_ID) ?? null
-  const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
-  // Collapse the secondary providers behind a disclosure only when Nous
-  // Portal is present to anchor the choice — otherwise show the full list.
-  const collapsible = Boolean(featured) && rest.length > 0
-  const showRest = !collapsible || showAll
-
-  return (
-    <div className="grid gap-2">
-      <div className="grid max-h-[60dvh] gap-2 overflow-y-auto p-1">
-        {featured ? <FeaturedProviderRow onSelect={select} provider={featured} /> : null}
-        {showRest ? (
-          <>
-            {rest.map(p => (
-              <ProviderRow key={p.id} onSelect={select} provider={p} />
-            ))}
-            <KeyProviderRow onClick={() => setOnboardingMode('apikey')} />
-          </>
-        ) : null}
-      </div>
-      {collapsible ? (
-        <Button
-          className="mt-1 self-center font-medium"
-          onClick={() => setShowAll(persistShowAll(!showAll))}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          {showAll ? t.onboarding.collapse : t.onboarding.otherProviders}
-          <ChevronDown className={cn('size-3.5 transition', showAll && 'rotate-180')} />
-        </Button>
-      ) : null}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        {/* First run only: let the user defer the choice and land in the app.
-            In manual mode the overlay already has a close affordance, so the
-            "choose later" escape would be redundant — hide it. */}
-        {manual ? <span /> : <ChooseLaterLink />}
-        <Button
-          className="-mr-2 font-medium"
-          onClick={() => setOnboardingMode('apikey')}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          {t.onboarding.haveApiKey}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// "I'll choose a provider later" — dismisses the first-run picker and persists
-// the skip so it never re-nags. The user connects a provider any time from
-// Settings → Providers. Rendered only on the unconfigured first-run flow.
-function ChooseLaterLink() {
-  const { t } = useI18n()
-
-  return (
-    <Button
-      className="font-medium"
-      onClick={() => dismissFirstRunOnboarding()}
-      size="xs"
-      type="button"
-      variant="text"
-    >
-      {t.onboarding.chooseLater}
-    </Button>
-  )
-}
-
-export function FeaturedProviderRow({
-  onSelect,
-  provider
-}: {
-  onSelect: (provider: OAuthProvider) => void
-  provider: OAuthProvider
-}) {
-  const { t } = useI18n()
-  const loggedIn = provider.status?.logged_in
-
-  return (
-    <button
-      className="group relative flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
-      onClick={() => onSelect(provider)}
-      type="button"
-    >
-      <span aria-hidden className="arc-border arc-reverse arc-nous" />
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <img alt="" className="size-5 shrink-0 rounded" src={assetPath('apple-touch-icon.png')} />
-          <span className="text-[length:var(--conversation-text-font-size)] font-semibold">
-            {providerTitle(provider)}
-          </span>
-          {loggedIn ? (
-            <ConnectedTag />
-          ) : (
-            <span className="inline-flex items-center gap-1.5 bg-primary px-2 py-0.5 text-[0.64rem] font-semibold uppercase tracking-[0.16em] text-primary-foreground">
-              <span aria-hidden="true" className="dither inline-block size-2 shrink-0" />
-              {t.onboarding.recommended}
-            </span>
-          )}
-        </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.featuredPitch}</p>
-      </div>
-      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
-    </button>
-  )
-}
-
-function ConnectedTag() {
-  const { t } = useI18n()
-
-  return (
-    <span className="inline-flex items-center gap-1 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-      <Check className="size-3" />
-      {t.onboarding.connected}
-    </span>
-  )
-}
-
-const PROVIDER_ROW_CLASS =
-  'group flex w-full items-center justify-between gap-3 rounded-[6px] px-3 py-2.5 text-left transition-colors hover:bg-(--ui-control-hover-background)'
-
-export function KeyProviderRow({ onClick }: { onClick: () => void }) {
-  const { t } = useI18n()
-
-  return (
-    <button className={PROVIDER_ROW_CLASS} onClick={onClick} type="button">
-      <div className="min-w-0">
-        <span className="text-[length:var(--conversation-text-font-size)] font-semibold">OpenRouter</span>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.openRouterPitch}</p>
-      </div>
-      <ChevronRight className="size-4 text-muted-foreground transition group-hover:text-foreground" />
-    </button>
-  )
-}
-
-export function ProviderRow({
-  onSelect,
-  provider
-}: {
-  onSelect: (provider: OAuthProvider) => void
-  provider: OAuthProvider
-}) {
-  const { t } = useI18n()
-  const loggedIn = provider.status?.logged_in
-  const Trail = provider.flow === 'external' ? Terminal : ChevronRight
-
-  return (
-    <button className={PROVIDER_ROW_CLASS} onClick={() => onSelect(provider)} type="button">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[length:var(--conversation-text-font-size)] font-semibold">
-            {providerTitle(provider)}
-          </span>
-          {loggedIn ? <ConnectedTag /> : null}
-        </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.flowSubtitles[provider.flow]}</p>
-      </div>
-      <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
-    </button>
-  )
+  return <OnboardingApiWizard ctx={ctx} />
 }
 
 type ApiWizardStatus = 'idle' | 'loading' | 'discovering' | 'validating' | 'ok' | 'error'
@@ -629,13 +414,9 @@ function isCustomProvider(provider: ProviderCatalogEntry | null) {
 }
 
 function OnboardingApiWizard({
-  canGoBack,
-  ctx,
-  onBack
+  ctx
 }: {
-  canGoBack: boolean
   ctx: OnboardingContext
-  onBack: () => void
 }) {
   const [providers, setProviders] = useState<ProviderCatalogEntry[]>([])
   const [providerSlug, setProviderSlug] = useState('')
@@ -744,19 +525,6 @@ function OnboardingApiWizard({
 
   return (
     <div className="grid gap-4">
-      {canGoBack ? (
-        <Button
-          className="-mt-1 self-start font-medium"
-          onClick={onBack}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          <ChevronLeft className="size-3" />
-          返回登录方式
-        </Button>
-      ) : null}
-
       <div className="grid gap-3 rounded-md border border-border/50 p-3">
         <div>
           <h3 className="text-sm font-semibold">配置 LLM API</h3>

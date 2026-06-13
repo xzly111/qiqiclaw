@@ -92,7 +92,7 @@ export interface OnboardingLlmProviderSetupInput {
 }
 
 const CONFIGURED_CACHE_KEY = 'qiqiclaw-desktop-onboarded-v1'
-const SKIP_CACHE_KEY = 'hermes-onboarding-skipped-v1'
+const SKIP_CACHE_KEY = 'qiqiclaw-onboarding-skipped-v1'
 const POLL_MS = 2000
 const COPY_FLASH_MS = 1500
 export const DEFAULT_ONBOARDING_REASON = 'No inference provider is configured.'
@@ -157,7 +157,7 @@ function writeCachedSkipped(value: boolean) {
 const INITIAL: DesktopOnboardingState = {
   configured: readCachedConfigured(),
   flow: { status: 'idle' },
-  mode: 'oauth',
+  mode: 'apikey',
   providers: null,
   reason: null,
   requested: false,
@@ -380,7 +380,7 @@ async function refreshProviders() {
   providersRefreshPromise = (async () => {
     try {
       const { providers } = await listOAuthProviders()
-      patch({ mode: providers.length > 0 ? 'oauth' : 'apikey', providers })
+      patch({ mode: 'apikey', providers })
     } catch {
       patch({ mode: 'apikey', providers: [] })
     } finally {
@@ -403,6 +403,7 @@ export function requestDesktopOnboarding(reason = DEFAULT_ONBOARDING_REASON) {
 export function startManualOnboarding(reason: null | string = DEFAULT_MANUAL_ONBOARDING_REASON) {
   patch({
     manual: true,
+    mode: 'apikey',
     requested: true,
     // `null` opts out of the prompt banner entirely (e.g. when the user already
     // picked a specific provider and we auto-start its sign-in).
@@ -455,7 +456,7 @@ export function completeDesktopOnboarding() {
   $desktopOnboarding.set({
     configured: true,
     flow: { status: 'idle' },
-    mode: 'oauth',
+    mode: 'apikey',
     providers: null,
     reason: null,
     requested: false,
