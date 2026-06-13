@@ -1224,8 +1224,16 @@ clone_repo() {
             fi
 
             git fetch origin
-            git checkout "$BRANCH"
-            git pull --ff-only origin "$BRANCH"
+            if [ -n "$INSTALL_COMMIT" ]; then
+                log_info "Pinning checkout to commit $INSTALL_COMMIT..."
+                if ! git cat-file -e "$INSTALL_COMMIT^{commit}" 2>/dev/null; then
+                    git fetch origin "$INSTALL_COMMIT" || true
+                fi
+                git checkout --detach "$INSTALL_COMMIT"
+            else
+                git checkout "$BRANCH"
+                git pull --ff-only origin "$BRANCH"
+            fi
 
             if [ -n "$autostash_ref" ]; then
                 local restore_now="yes"
@@ -1267,14 +1275,19 @@ clone_repo() {
         # Try SSH first (for private repo access), fall back to HTTPS
         # GIT_SSH_COMMAND disables interactive prompts and sets a short timeout
         # so SSH fails fast instead of hanging when no key is configured.
+        local clone_branch_args=(--depth 1)
+        if [ -z "$INSTALL_COMMIT" ]; then
+            clone_branch_args+=(--branch "$BRANCH")
+        fi
+
         log_info "Trying SSH clone..."
         if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
-           git clone --depth 1 --branch "$BRANCH" "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
+           git clone "${clone_branch_args[@]}" "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
             log_success "Cloned via SSH"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
             log_info "SSH failed, trying HTTPS..."
-            if git clone --depth 1 --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
+            if git clone "${clone_branch_args[@]}" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
                 log_success "Cloned via HTTPS"
             else
                 log_error "Failed to clone repository"

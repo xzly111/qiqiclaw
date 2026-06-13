@@ -490,7 +490,7 @@ function buildPinArgs(installStamp) {
   if (installStamp && installStamp.commit) {
     args.push('-Commit', installStamp.commit)
   }
-  if (installStamp && installStamp.branch) {
+  if (installStamp && !installStamp.commit && installStamp.branch) {
     args.push('-Branch', installStamp.branch)
   }
   return args
@@ -498,7 +498,7 @@ function buildPinArgs(installStamp) {
 
 function buildPosixPinArgs({ installStamp, activeRoot, hermesHome }) {
   const args = ['--dir', activeRoot, '--hermes-home', hermesHome]
-  if (installStamp && installStamp.branch) {
+  if (installStamp && !installStamp.commit && installStamp.branch) {
     args.push('--branch', installStamp.branch)
   }
   if (installStamp && installStamp.commit) {

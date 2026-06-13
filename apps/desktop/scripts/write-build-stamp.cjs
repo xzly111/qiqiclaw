@@ -68,6 +68,21 @@ function fromCI() {
   }
 }
 
+function installBranchFromEnv() {
+  const branch = process.env.QIQICLAW_INSTALL_BRANCH || process.env.HERMES_INSTALL_BRANCH_NAME
+  return branch ? branch.trim() || null : null
+}
+
+function remoteDefaultBranch() {
+  const ref = tryExec("git symbolic-ref --short refs/remotes/origin/HEAD", { cwd: REPO_ROOT })
+  if (!ref) return null
+  return ref.replace(/^origin\//, "") || null
+}
+
+function publishBranch(localBranch) {
+  return installBranchFromEnv() || remoteDefaultBranch() || (localBranch === "master" ? "main" : localBranch)
+}
+
 function fromLocalGit() {
   const sha = tryExec("git rev-parse HEAD", { cwd: REPO_ROOT })
   if (!sha) return null
@@ -82,7 +97,7 @@ function fromLocalGit() {
   const dirty = status !== null && status.length > 0
   return {
     commit: sha,
-    branch: branch === "HEAD" ? null : branch, // detached HEAD -> null
+    branch: branch === "HEAD" ? publishBranch(null) : publishBranch(branch), // detached HEAD -> remote default if known
     dirty: dirty,
     source: "local"
   }

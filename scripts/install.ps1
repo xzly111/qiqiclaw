@@ -1316,11 +1316,20 @@ function Install-Repository {
         $env:GIT_CONFIG_VALUE_0 = "false"
         git config --global windows.appendAtomically false 2>$null
 
-        # Try SSH first, then HTTPS, with -c flag for atomic write fix
+        # Try SSH first, then HTTPS, with -c flag for atomic write fix.
+        # When a specific commit is pinned, do not bind the initial clone to
+        # $Branch: release builds can be produced from a local branch name that
+        # does not exist on the public remote. Clone the remote default branch,
+        # then fetch/checkout the pinned commit below.
+        $cloneRefArgs = @()
+        if (-not $Commit) {
+            $cloneRefArgs = @("--branch", $Branch)
+        }
+
         Write-Info "Trying SSH clone..."
         $env:GIT_SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=5"
         try {
-            git -c windows.appendAtomically=false clone --depth 1 --branch $Branch $RepoUrlSsh $InstallDir
+            git -c windows.appendAtomically=false clone --depth 1 @cloneRefArgs $RepoUrlSsh $InstallDir
             if ($LASTEXITCODE -eq 0) { $cloneSuccess = $true }
         } catch { }
         $env:GIT_SSH_COMMAND = $null
@@ -1329,7 +1338,7 @@ function Install-Repository {
             if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue }
             Write-Info "SSH failed, trying HTTPS..."
             try {
-                git -c windows.appendAtomically=false clone --depth 1 --branch $Branch $RepoUrlHttps $InstallDir
+                git -c windows.appendAtomically=false clone --depth 1 @cloneRefArgs $RepoUrlHttps $InstallDir
                 if ($LASTEXITCODE -eq 0) { $cloneSuccess = $true }
             } catch { }
         }
