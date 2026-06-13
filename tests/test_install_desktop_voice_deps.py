@@ -55,6 +55,10 @@ def test_gitee_full_feature_diagnostics_waits_for_api_setup_and_prompts_user() -
     assert "platform-sdks" in main
 
     assert "FullFeatureDiagnosticsDialog" in controller
+    assert "triggerFullFeatureDiagnostics()" in controller
+    assert "triggerKey={fullFeatureDiagnosticsTrigger}" in controller
+    assert "triggerKey = 0" in dialog
+    assert "window.localStorage.removeItem(DISMISSED_KEY)" in dialog
     assert "全功能依赖完整" in dialog
     assert "发现未安装的全功能依赖" in dialog
     assert "配置缺失依赖" in dialog

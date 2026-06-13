@@ -10,7 +10,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 const DISMISSED_KEY = 'qiqiclaw:gitee-full-feature-diagnostics-dismissed'
 
-export function FullFeatureDiagnosticsDialog() {
+interface FullFeatureDiagnosticsDialogProps {
+  triggerKey?: number
+}
+
+export function FullFeatureDiagnosticsDialog({ triggerKey = 0 }: FullFeatureDiagnosticsDialogProps) {
   const [diagnostics, setDiagnostics] = useState<DesktopFullFeatureDiagnostics | null>(null)
   const [open, setOpen] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -55,9 +59,9 @@ export function FullFeatureDiagnosticsDialog() {
   useEffect(() => {
     stoppedRef.current = false
 
-    const loop = async () => {
+    const loop = async ({ force = false }: { force?: boolean } = {}) => {
       const dismissedAt = Number(window.localStorage.getItem(DISMISSED_KEY) || '0')
-      if (dismissedAt > 0 && Date.now() - dismissedAt < 24 * 60 * 60 * 1000) {
+      if (!force && dismissedAt > 0 && Date.now() - dismissedAt < 24 * 60 * 60 * 1000) {
         return
       }
 
@@ -73,6 +77,9 @@ export function FullFeatureDiagnosticsDialog() {
           continue
         }
 
+        if (force) {
+          window.localStorage.removeItem(DISMISSED_KEY)
+        }
         shownRef.current = true
         setOpen(true)
         return
@@ -85,6 +92,26 @@ export function FullFeatureDiagnosticsDialog() {
       stoppedRef.current = true
     }
   }, [])
+
+  useEffect(() => {
+    if (triggerKey <= 0) {
+      return
+    }
+
+    stoppedRef.current = false
+    shownRef.current = false
+    void (async () => {
+      const result = await runCheck()
+
+      if (!result?.enabled || result.apiReachable === false) {
+        return
+      }
+
+      window.localStorage.removeItem(DISMISSED_KEY)
+      shownRef.current = true
+      setOpen(true)
+    })()
+  }, [triggerKey])
 
   const missingChecks = diagnostics?.checks?.filter(check => !check.ok) ?? []
   const complete = Boolean(diagnostics?.ok)

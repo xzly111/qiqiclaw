@@ -1,6 +1,6 @@
 import { useStore } from '@nanostores/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { BootFailureOverlay } from '@/components/boot-failure-overlay'
@@ -151,6 +151,10 @@ function sessionsToKeep(scope?: string): Set<string> {
 
 export function DesktopController() {
   const queryClient = useQueryClient()
+  const [fullFeatureDiagnosticsTrigger, setFullFeatureDiagnosticsTrigger] = useState(0)
+  const triggerFullFeatureDiagnostics = useCallback(() => {
+    setFullFeatureDiagnosticsTrigger(value => value + 1)
+  }, [])
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -732,12 +736,13 @@ export function DesktopController() {
           void refreshQiQiClawConfig()
           void refreshCurrentModel()
           void queryClient.invalidateQueries({ queryKey: ['model-options'] })
+          triggerFullFeatureDiagnostics()
         }}
         requestGateway={requestGateway}
       />
       <ModelPickerOverlay gateway={gatewayRef.current || undefined} onSelect={selectModel} />
       <ModelVisibilityOverlay gateway={gatewayRef.current || undefined} onOpenProviders={openProviderSettings} />
-      <FullFeatureDiagnosticsDialog />
+      <FullFeatureDiagnosticsDialog triggerKey={fullFeatureDiagnosticsTrigger} />
       <UpdatesOverlay />
       <GatewayConnectingOverlay />
       <BootFailureOverlay />
@@ -752,6 +757,7 @@ export function DesktopController() {
               void refreshQiQiClawConfig()
               void refreshCurrentModel()
               void queryClient.invalidateQueries({ queryKey: ['model-options'] })
+              triggerFullFeatureDiagnostics()
             }}
             onMainModelChanged={(provider, model) => {
               setCurrentProvider(provider)
@@ -759,6 +765,7 @@ export function DesktopController() {
               updateModelOptionsCache(provider, model, true)
               void refreshCurrentModel()
               void queryClient.invalidateQueries({ queryKey: ['model-options'] })
+              triggerFullFeatureDiagnostics()
             }}
           />
         </Suspense>
