@@ -136,6 +136,11 @@
   },
   "build": {
     "electronVersion": "40.9.3",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN",
+      "zh-TW"
+    ],
     "appId": "com.qiqiclaw.desktop",
     "productName": "QiQiClaw Desktop",
     "executableName": "qiqiclaw-desktop",
