@@ -28,6 +28,7 @@ const { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } = requ
 const { runBootstrap } = require('./bootstrap-runner.cjs')
 const { canImportQiQiClawCli, verifyQiQiClawCli } = require('./backend-probes.cjs')
 const { probeGatewayWebSocket } = require('./gateway-ws-probe.cjs')
+const { buildUpdateEnv, branchArgsForUpdate } = require('./update-env.cjs')
 const { serializeJsonBody, setJsonRequestHeaders } = require('./oauth-net-request.cjs')
 const {
   buildPosixCleanupScript,
@@ -187,8 +188,9 @@ function loadInstallStamp() {
 }
 const INSTALL_STAMP = loadInstallStamp()
 if (INSTALL_STAMP) {
+  const stampSource = INSTALL_STAMP.installSource || INSTALL_STAMP.source || 'unknown'
   console.log(
-    `[hermes] install stamp: ${INSTALL_STAMP.commit.slice(0, 12)}${INSTALL_STAMP.branch ? ` (${INSTALL_STAMP.branch})` : ''}${INSTALL_STAMP.dirty ? ' [DIRTY]' : ''} from ${INSTALL_STAMP.source || 'unknown'}`
+    `[hermes] install stamp: ${INSTALL_STAMP.commit.slice(0, 12)}${INSTALL_STAMP.branch ? ` (${INSTALL_STAMP.branch})` : ''}${INSTALL_STAMP.dirty ? ' [DIRTY]' : ''} from ${stampSource}`
   )
 } else if (IS_PACKAGED) {
   // Dev builds without a stamp are normal; packaged builds without one
@@ -1604,7 +1606,7 @@ async function applyUpdates(opts = {}) {
     const updateRoot = resolveUpdateRoot()
     const { branch: configuredBranch } = readDesktopUpdateConfig()
     const branch = await resolveHealedBranch(updateRoot, configuredBranch || DEFAULT_UPDATE_BRANCH)
-    const updaterArgs = ['--update', '--branch', branch]
+    const updaterArgs = ['--update', ...branchArgsForUpdate(branch)]
     const targetApp = IS_MAC ? runningAppBundle() : null
     if (targetApp) {
       updaterArgs.push('--target-app', targetApp)
@@ -1621,11 +1623,13 @@ async function applyUpdates(opts = {}) {
     // `qiqiclaw update` will run (the venv shim is locked while we live).
     const child = spawn(updater, updaterArgs, {
       cwd: HERMES_HOME,
-      env: {
-        ...process.env,
-        HERMES_HOME,
-        PATH: [path.join(HERMES_HOME, 'node', 'bin'), venvBin, process.env.PATH].filter(Boolean).join(path.delimiter)
-      },
+      env: buildUpdateEnv({
+        installStamp: INSTALL_STAMP,
+        extraEnv: {
+          HERMES_HOME,
+          PATH: [path.join(HERMES_HOME, 'node', 'bin'), venvBin, process.env.PATH].filter(Boolean).join(path.delimiter)
+        }
+      }),
       detached: true,
       stdio: 'ignore',
       windowsHide: false
@@ -1711,10 +1715,13 @@ async function applyUpdatesPosixInApp() {
   const extraPath = [path.join(HERMES_HOME, 'node', 'bin'), path.join(updateRoot, 'venv', 'bin')]
     .filter(Boolean)
     .join(path.delimiter)
-  const env = {
-    HERMES_HOME,
-    PATH: [extraPath, process.env.PATH].filter(Boolean).join(path.delimiter)
-  }
+  const env = buildUpdateEnv({
+    installStamp: INSTALL_STAMP,
+    extraEnv: {
+      HERMES_HOME,
+      PATH: [extraPath, process.env.PATH].filter(Boolean).join(path.delimiter)
+    }
+  })
 
   // `qiqiclaw update` reaps stale `qiqiclaw dashboard` backends (a code update
   // leaves the running process serving old Python against the freshly-updated
@@ -1748,7 +1755,7 @@ async function applyUpdatesPosixInApp() {
     const head = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: updateRoot })
     const current = (head.stdout || '').trim()
     if (head.code === 0 && current && current !== 'HEAD') {
-      branchArgs = ['--branch', await resolveHealedBranch(updateRoot, current)]
+      branchArgs = branchArgsForUpdate(await resolveHealedBranch(updateRoot, current))
     }
   } catch {
     // best effort

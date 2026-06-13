@@ -5450,6 +5450,7 @@ def _run_npm_install_deterministic(
     *,
     extra_args: tuple[str, ...] = (),
     capture_output: bool = True,
+    env: Optional[dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """Run a deterministic npm install that does not mutate ``package-lock.json``.
 
@@ -5469,6 +5470,7 @@ def _run_npm_install_deterministic(
             capture_output=capture_output,
             text=True,
             check=False,
+            env=env,
         )
         if ci_result.returncode == 0:
             return ci_result
@@ -5481,10 +5483,11 @@ def _run_npm_install_deterministic(
         capture_output=capture_output,
         text=True,
         check=False,
+        env=env,
     )
 
 
-def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
+def _build_web_ui(web_dir: Path, *, fatal: bool = False, env: Optional[dict[str, str]] = None) -> bool:
     """Build the legacy web UI when needed; otherwise honor static web_dist."""
     if web_dir.exists():
         if not _web_ui_build_needed(web_dir):
@@ -5501,6 +5504,7 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
             web_dir,
             extra_args=("--silent",),
             capture_output=True,
+            env=env,
         )
         if install_result.returncode != 0:
             if fatal:
@@ -5513,6 +5517,7 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
             capture_output=True,
             text=True,
             check=False,
+            env=env,
         )
         return build_result.returncode == 0
 
@@ -5725,7 +5730,11 @@ def _update_via_zip(args):
     import zipfile
     from urllib.request import urlretrieve
 
-    branch = "main"
+    branch = _resolve_update_branch(args)
+    if branch != "main":
+        print(f"✗ --branch={branch} is not supported on the Windows ZIP fallback updater.")
+        print("  Run from a git checkout to update a non-main branch.")
+        sys.exit(1)
     zip_url = (
         f"https://github.com/xzly111/qiqiclaw/archive/refs/heads/{branch}.zip"
     )
@@ -5800,7 +5809,7 @@ def _update_via_zip(args):
 
     uv_bin = shutil.which("uv")
     if uv_bin:
-        uv_env = {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
+        uv_env = _update_dependency_env(None, {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")})
         _install_python_dependencies_with_optional_fallback([uv_bin, "pip"], env=uv_env)
     else:
         # Use sys.executable to explicitly call the venv's pip module,
@@ -5821,10 +5830,11 @@ def _update_via_zip(args):
                 cwd=PROJECT_ROOT,
                 check=True,
             )
-        _install_python_dependencies_with_optional_fallback(pip_cmd)
+        _install_python_dependencies_with_optional_fallback(pip_cmd, env=_update_dependency_env(None))
 
-    _update_node_dependencies()
-    _build_web_ui(PROJECT_ROOT / "web")
+    update_env = _update_dependency_env(None)
+    _update_node_dependencies(env=update_env)
+    _build_web_ui(PROJECT_ROOT / "web", env=update_env)
 
     # Sync skills
     try:
@@ -6047,9 +6057,87 @@ OFFICIAL_REPO_URLS = {
     "git@github.com:xzly111/qiqiclaw.git",
     "https://github.com/xzly111/qiqiclaw",
     "git@github.com:xzly111/qiqiclaw",
+    "https://gitee.com/szd20020329/qiqiclaw.git",
+    "git@gitee.com:szd20020329/qiqiclaw.git",
+    "https://gitee.com/szd20020329/qiqiclaw",
+    "git@gitee.com:szd20020329/qiqiclaw",
 }
 OFFICIAL_REPO_URL = "https://github.com/xzly111/qiqiclaw.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
+GITEE_REPO_URLS = {
+    "https://gitee.com/szd20020329/qiqiclaw.git",
+    "git@gitee.com:szd20020329/qiqiclaw.git",
+    "https://gitee.com/szd20020329/qiqiclaw",
+    "git@gitee.com:szd20020329/qiqiclaw",
+}
+GITHUB_REPO_URLS = {
+    "https://github.com/xzly111/qiqiclaw.git",
+    "git@github.com:xzly111/qiqiclaw.git",
+    "https://github.com/xzly111/qiqiclaw",
+    "git@github.com:xzly111/qiqiclaw",
+}
+
+
+def _normalize_repo_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    normalized = url.strip().rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    return normalized.lower()
+
+
+def _normalize_install_source(value: Optional[str]) -> Optional[str]:
+    source = (value or "").strip().lower()
+    if source in {"gitee", "cn", "china", "domestic", "码云", "碼雲"}:
+        return "gitee"
+    if source == "github":
+        return "github"
+    return None
+
+
+def _detect_update_install_source(origin_url: Optional[str], env: Optional[dict[str, str]] = None) -> str:
+    """Resolve whether this checkout should update via GitHub or Gitee.
+
+    Desktop packages pass QIQICLAW_INSTALL_SOURCE/HERMES_INSTALL_SOURCE, but
+    users can also run `qiqiclaw update` directly from an existing checkout.
+    In that case infer from origin so a Gitee install keeps using domestic
+    package mirrors during dependency repair.
+    """
+    env = env or os.environ
+    explicit = _normalize_install_source(env.get("QIQICLAW_INSTALL_SOURCE")) or _normalize_install_source(
+        env.get("HERMES_INSTALL_SOURCE")
+    )
+    if explicit:
+        return explicit
+
+    normalized = _normalize_repo_url(origin_url)
+    if normalized and any(normalized == _normalize_repo_url(url) for url in GITEE_REPO_URLS):
+        return "gitee"
+    return "github"
+
+
+def _update_dependency_env(origin_url: Optional[str], base_env: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """Environment for dependency work performed by `qiqiclaw update`."""
+    env = dict(base_env or os.environ)
+    source = _detect_update_install_source(origin_url, env)
+    env["QIQICLAW_INSTALL_SOURCE"] = source
+    env["HERMES_INSTALL_SOURCE"] = source
+    if source == "gitee":
+        env["PIP_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
+        env["UV_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
+        env["UV_DEFAULT_INDEX"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
+        env["npm_config_registry"] = "https://registry.npmmirror.com"
+        env["PLAYWRIGHT_DOWNLOAD_HOST"] = "https://npmmirror.com/mirrors/playwright"
+        env["ELECTRON_MIRROR"] = "https://npmmirror.com/mirrors/electron/"
+        env["ELECTRON_BUILDER_BINARIES_MIRROR"] = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+        env["QIQICLAW_NODE_DIST_BASE_URL"] = "https://registry.npmmirror.com/-/binary/node"
+    return env
+
+
+def _resolve_update_branch(args) -> str:
+    branch = (getattr(args, "branch", None) or "main").strip()
+    return branch or "main"
 
 
 def _get_origin_url(git_cmd: list[str], cwd: Path) -> Optional[str]:
@@ -6388,7 +6476,7 @@ def _install_python_dependencies_with_optional_fallback(
         )
 
 
-def _update_node_dependencies() -> None:
+def _update_node_dependencies(*, env: Optional[dict[str, str]] = None) -> None:
     npm = shutil.which("npm")
     if not npm:
         return
@@ -6409,6 +6497,7 @@ def _update_node_dependencies() -> None:
             npm,
             path,
             extra_args=("--silent", "--no-fund", "--no-audit", "--progress=false"),
+            env=env,
         )
         if result.returncode == 0:
             print(f"  ✓ {label}")
@@ -6958,26 +7047,43 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
         current_branch = result.stdout.strip()
 
-        # Always update against main
-        branch = "main"
+        branch = _resolve_update_branch(args)
 
-        # If user is on a non-main branch or detached HEAD, switch to main
-        if current_branch != "main":
+        if current_branch != branch:
             label = (
                 "detached HEAD"
                 if current_branch == "HEAD"
                 else f"branch '{current_branch}'"
             )
-            print(f"  ⚠ Currently on {label} — switching to main for update...")
+            print(f"  ⚠ Currently on {label} — switching to {branch} for update...")
             # Stash before checkout so uncommitted work isn't lost
             auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
-            subprocess.run(
-                git_cmd + ["checkout", "main"],
+            checkout_result = subprocess.run(
+                git_cmd + ["checkout", branch],
                 cwd=PROJECT_ROOT,
                 capture_output=True,
                 text=True,
-                check=True,
             )
+            if checkout_result.returncode != 0:
+                track_result = subprocess.run(
+                    git_cmd + ["checkout", "-B", branch, f"origin/{branch}"],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                if track_result.returncode != 0:
+                    if auto_stash_ref is not None:
+                        _restore_stashed_changes(
+                            git_cmd,
+                            PROJECT_ROOT,
+                            auto_stash_ref,
+                            prompt_user=False,
+                            input_fn=gw_input_fn,
+                        )
+                    print(f"✗ Branch '{branch}' does not exist locally or on origin.")
+                    if track_result.stderr.strip():
+                        print(f"  {track_result.stderr.strip().splitlines()[0]}")
+                    sys.exit(1)
         else:
             auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
 
@@ -7008,7 +7114,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     prompt_user=prompt_for_restore,
                     input_fn=gw_input_fn,
                 )
-            if current_branch not in ("main", "HEAD"):
+            if current_branch not in (branch, "HEAD"):
                 subprocess.run(
                     git_cmd + ["checkout", current_branch],
                     cwd=PROJECT_ROOT,
@@ -7064,7 +7170,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     if reset_result.stderr.strip():
                         print(f"  {reset_result.stderr.strip()}")
                     print(
-                        "  Try manually: git fetch origin && git reset --hard origin/main"
+                        f"  Try manually: git fetch origin && git reset --hard origin/{branch}"
                     )
                     sys.exit(1)
             update_succeeded = True
@@ -7101,13 +7207,15 @@ def _cmd_update_impl(args, gateway_mode: bool):
         if is_fork and branch == "main":
             _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
 
+        update_env = _update_dependency_env(origin_url)
+
         # Reinstall Python dependencies. Prefer .[all], but if one optional extra
         # breaks on this machine, keep base deps and reinstall the remaining extras
         # individually so update does not silently strip working capabilities.
         print("→ 正在更新 Python 依赖...")
         uv_bin = shutil.which("uv")
         if uv_bin:
-            uv_env = {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
+            uv_env = {**update_env, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
             _install_python_dependencies_with_optional_fallback(
                 [uv_bin, "pip"], env=uv_env
             )
@@ -7129,11 +7237,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
                     cwd=PROJECT_ROOT,
                     check=True,
+                    env=update_env,
                 )
-            _install_python_dependencies_with_optional_fallback(pip_cmd)
+            _install_python_dependencies_with_optional_fallback(pip_cmd, env=update_env)
 
-        _update_node_dependencies()
-        _build_web_ui(PROJECT_ROOT / "web")
+        _update_node_dependencies(env=update_env)
+        _build_web_ui(PROJECT_ROOT / "web", env=update_env)
 
         print()
         print("✓ 代码已更新！")
@@ -10151,6 +10260,12 @@ Examples:
         action="store_true",
         default=False,
         help="Assume yes for interactive prompts (config migration, stash restore). API-key entry is skipped; run 'qiqiclaw config migrate' separately for those.",
+    )
+    update_parser.add_argument(
+        "--branch",
+        default=None,
+        metavar="NAME",
+        help="Update against this branch instead of the default main branch.",
     )
     update_parser.set_defaults(func=cmd_update)
 
