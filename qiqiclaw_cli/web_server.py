@@ -1226,6 +1226,52 @@ def _normalize_model_base_url(raw_url: Any) -> str:
     return str(raw_url or "").strip().rstrip("/")
 
 
+def _openai_compatible_base_url_candidates(raw_url: Any) -> List[str]:
+    normalized = _normalize_model_base_url(raw_url)
+    if not normalized:
+        return []
+    lowered = normalized.lower()
+    for suffix in ("/chat/completions", "/models"):
+        if lowered.endswith(suffix):
+            normalized = normalized[: -len(suffix)].rstrip("/")
+            lowered = normalized.lower()
+            break
+    candidates = [normalized]
+    if not (
+        lowered.endswith("/v1")
+        or lowered.endswith("/v1beta")
+    ):
+        candidates.append(f"{normalized}/v1")
+    return candidates
+
+
+def _base_url_from_probe_url(url: str, suffix: str) -> str:
+    normalized = _normalize_model_base_url(url)
+    if suffix and normalized.endswith(suffix):
+        return normalized[: -len(suffix)].rstrip("/")
+    return normalized
+
+
+def _update_model_library_entry_base_url(model_entry: Dict[str, Any], base_url: str) -> Dict[str, Any]:
+    resolved = _normalize_model_base_url(base_url)
+    if not resolved or _normalize_model_base_url(model_entry.get("base_url")) == resolved:
+        return model_entry
+    model_id = str(model_entry.get("id") or "").strip()
+    if not model_id:
+        model_entry["base_url"] = resolved
+        return model_entry
+    models = _read_models_library()
+    for entry in models:
+        if entry.get("id") != model_id:
+            continue
+        entry["base_url"] = resolved
+        model_entry["base_url"] = resolved
+        _write_models_library(models)
+        return entry
+    model_entry["base_url"] = resolved
+    return model_entry
+
+
 def _model_route_host(base_url: str) -> str:
     if not base_url:
         return ""
@@ -1486,28 +1532,34 @@ def _provider_supports_model_discovery(provider: str, base_url: str, auth_type: 
     return mode in {"chat_completions", "codex_responses"}
 
 
-def _discover_models_with_key(base_url: str, api_key: str) -> Tuple[bool, str, List[str]]:
+def _discover_models_with_key(base_url: str, api_key: str) -> Tuple[bool, str, List[str], str]:
     import httpx
 
-    normalized = _normalize_model_base_url(base_url)
-    if not normalized:
-        return False, "Base URL 为空，无法发现模型", []
-    url = normalized.rstrip("/") + "/models"
+    candidates = _openai_compatible_base_url_candidates(base_url)
+    if not candidates:
+        return False, "Base URL 为空，无法发现模型", [], ""
     headers = {"Accept": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    last_message = ""
     try:
         with httpx.Client(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
-            resp = client.get(url, headers=headers)
+            for candidate in candidates:
+                url = candidate.rstrip("/") + "/models"
+                resp = client.get(url, headers=headers)
+                models = _parse_model_ids(resp)
+                if resp.status_code < 200 or resp.status_code >= 300:
+                    detail = resp.text.strip().replace("\n", " ")[:240]
+                    last_message = f"HTTP {resp.status_code}: {detail or resp.reason_phrase}"
+                    continue
+                if not models:
+                    last_message = "接口可访问，但未返回模型列表"
+                    continue
+                resolved = _base_url_from_probe_url(url, "/models")
+                return True, f"发现 {len(models)} 个模型", models, resolved
     except Exception as exc:
-        return False, f"请求失败: {exc}", []
-    models = _parse_model_ids(resp)
-    if resp.status_code < 200 or resp.status_code >= 300:
-        detail = resp.text.strip().replace("\n", " ")[:240]
-        return False, f"HTTP {resp.status_code}: {detail or resp.reason_phrase}", []
-    if not models:
-        return False, "接口可访问，但未返回模型列表", []
-    return True, f"发现 {len(models)} 个模型", models
+        return False, f"请求失败: {exc}", [], ""
+    return False, last_message or "没有发现可用模型", [], ""
 
 
 def _discover_models_from_pool(provider: str, base_url: str = "", credential_index: Optional[int] = None) -> Dict[str, Any]:
@@ -1565,17 +1617,25 @@ def _discover_models_from_pool(provider: str, base_url: str = "", credential_ind
         ).strip()
         entry_base_url = _resolve_model_route_base_url(provider, probe_entry, credential)
         if not api_key and provider != "custom":
-            ok, message, found = False, "凭证缺少 access_token", []
+            ok, message, found, resolved_entry_base_url = False, "凭证缺少 access_token", [], entry_base_url
         else:
-            ok, message, found = _discover_models_with_key(entry_base_url, api_key)
+            discovery = _discover_models_with_key(entry_base_url, api_key)
+            if len(discovery) == 3:
+                ok, message, found = discovery
+                resolved_entry_base_url = entry_base_url
+            else:
+                ok, message, found, resolved_entry_base_url = discovery
+            resolved_entry_base_url = resolved_entry_base_url or entry_base_url
         checked.append({
             "index": index,
             "ok": ok,
             "message": message,
-            "base_url": entry_base_url,
+            "base_url": resolved_entry_base_url,
             "count": len(found),
         })
         if ok and found:
+            if resolved_entry_base_url and resolved_entry_base_url != entry_base_url:
+                credential["base_url"] = resolved_entry_base_url
             validated = credential.get("validated_models")
             if not isinstance(validated, dict):
                 validated = {}
@@ -1584,7 +1644,7 @@ def _discover_models_from_pool(provider: str, base_url: str = "", credential_ind
                 validated[model] = {
                     "status": "ok",
                     "checked_at": now,
-                    "base_url": entry_base_url,
+                    "base_url": resolved_entry_base_url,
                     "message": "模型发现接口验证通过",
                 }
             credential["last_status"] = "ok"
@@ -1598,14 +1658,14 @@ def _discover_models_from_pool(provider: str, base_url: str = "", credential_ind
                 entry, deduped = _find_or_create_model_library_entry(
                     provider=provider,
                     model=model,
-                    base_url=entry_base_url,
+                    base_url=resolved_entry_base_url,
                     name=model,
                 )
                 saved_models.append({
                     "id": entry.get("id"),
                     "model": model,
                     "provider": provider,
-                    "base_url": entry.get("base_url") or entry_base_url,
+                    "base_url": entry.get("base_url") or resolved_entry_base_url,
                     "deduped": deduped,
                     "credential_index": index,
                 })
@@ -1616,7 +1676,7 @@ def _discover_models_from_pool(provider: str, base_url: str = "", credential_ind
     return {
         "ok": bool(models),
         "provider": provider,
-        "base_url": resolved_base_url,
+        "base_url": next((item["base_url"] for item in checked if item.get("ok") and item.get("base_url")), resolved_base_url),
         "models": models,
         "saved_models": saved_models,
         "saved_count": len(saved_models),
@@ -1667,9 +1727,18 @@ def _validate_model_entry_with_pool(
         ).strip()
         base_url = _resolve_model_route_base_url(provider, model_entry, credential)
         if not api_key and provider != "custom":
-            ok, message = False, "凭证缺少 access_token"
+            ok, message, resolved_base_url = False, "凭证缺少 access_token", base_url
         else:
-            ok, message = _openai_compatible_chat_probe(base_url, api_key, model)
+            probe = _openai_compatible_chat_probe(base_url, api_key, model)
+            if len(probe) == 2:
+                ok, message = probe
+                resolved_base_url = base_url
+            else:
+                ok, message, resolved_base_url = probe
+            resolved_base_url = resolved_base_url or base_url
+        if ok and resolved_base_url and resolved_base_url != base_url:
+            credential["base_url"] = resolved_base_url
+            model_entry = _update_model_library_entry_base_url(model_entry, resolved_base_url)
         validated = credential.get("validated_models")
         if not isinstance(validated, dict):
             validated = {}
@@ -1677,7 +1746,7 @@ def _validate_model_entry_with_pool(
         validated[model] = {
             "status": "ok" if ok else "error",
             "checked_at": now,
-            "base_url": base_url,
+            "base_url": resolved_base_url,
             "message": message,
         }
         credential["last_status"] = "ok" if ok else "error"
@@ -1688,7 +1757,7 @@ def _validate_model_entry_with_pool(
         else:
             credential["last_error"] = message
         changed = True
-        checked.append({"index": index, "ok": ok, "message": message})
+        checked.append({"base_url": resolved_base_url, "index": index, "ok": ok, "message": message})
         if ok:
             break
 
@@ -1704,6 +1773,7 @@ def _validate_model_entry_with_pool(
         "provider": provider,
         "credential_index": first_ok["index"] if first_ok else checked[-1]["index"],
         "message": first_ok["message"] if first_ok else checked[-1]["message"],
+        "base_url": first_ok["base_url"] if first_ok else checked[-1].get("base_url", ""),
         "checked": checked,
     }
 
@@ -1771,13 +1841,12 @@ def _build_verified_model_options_payload(
     }
 
 
-def _openai_compatible_chat_probe(base_url: str, api_key: str, model: str) -> Tuple[bool, str]:
+def _openai_compatible_chat_probe(base_url: str, api_key: str, model: str) -> Tuple[bool, str, str]:
     import httpx
 
-    normalized = _normalize_model_base_url(base_url)
-    if not normalized:
-        return False, "Base URL 为空，无法验证 OpenAI 兼容接口"
-    url = f"{normalized}/chat/completions"
+    candidates = _openai_compatible_base_url_candidates(base_url)
+    if not candidates:
+        return False, "Base URL 为空，无法验证 OpenAI 兼容接口", ""
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": "你好，请简短回复你正在使用的模型名称"}],
@@ -1790,41 +1859,49 @@ def _openai_compatible_chat_probe(base_url: str, api_key: str, model: str) -> Tu
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    last_message = ""
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0), follow_redirects=True) as client:
-            response = client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
+            for candidate in candidates:
+                url = f"{candidate.rstrip('/')}/chat/completions"
+                response = client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                )
+                resolved_base_url = _base_url_from_probe_url(url, "/chat/completions")
+                if response.status_code < 200 or response.status_code >= 300:
+                    detail = response.text.strip().replace("\n", " ")[:240]
+                    last_message = f"HTTP {response.status_code}: {detail or response.reason_phrase}"
+                    continue
+                try:
+                    data = response.json()
+                except Exception:
+                    last_message = "接口返回不是 JSON"
+                    continue
+                choices = data.get("choices") if isinstance(data, dict) else None
+                if not isinstance(choices, list):
+                    last_message = "响应缺少 choices"
+                    continue
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+                    message = choice.get("message")
+                    if isinstance(message, dict):
+                        content = message.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return True, "OpenAI 兼容聊天接口验证通过", resolved_base_url
+                        if message.get("tool_calls"):
+                            return True, "OpenAI 兼容聊天接口验证通过", resolved_base_url
+                    delta = choice.get("delta")
+                    if isinstance(delta, dict):
+                        content = delta.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return True, "OpenAI 兼容聊天接口验证通过", resolved_base_url
+                last_message = "接口返回 2xx，但模型没有返回可用内容"
     except Exception as exc:
-        return False, f"请求失败: {exc}"
-    if response.status_code < 200 or response.status_code >= 300:
-        detail = response.text.strip().replace("\n", " ")[:240]
-        return False, f"HTTP {response.status_code}: {detail or response.reason_phrase}"
-    try:
-        data = response.json()
-    except Exception:
-        return False, "接口返回不是 JSON"
-    choices = data.get("choices") if isinstance(data, dict) else None
-    if not isinstance(choices, list):
-        return False, "响应缺少 choices"
-    for choice in choices:
-        if not isinstance(choice, dict):
-            continue
-        message = choice.get("message")
-        if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, str) and content.strip():
-                return True, "OpenAI 兼容聊天接口验证通过"
-            if message.get("tool_calls"):
-                return True, "OpenAI 兼容聊天接口验证通过"
-        delta = choice.get("delta")
-        if isinstance(delta, dict):
-            content = delta.get("content")
-            if isinstance(content, str) and content.strip():
-                return True, "OpenAI 兼容聊天接口验证通过"
-    return False, "接口返回 2xx，但模型没有返回可用内容"
+        return False, f"请求失败: {exc}", ""
+    return False, last_message or "模型验证失败", ""
 
 
 def _env_key_for_model_library_url(raw_url: str) -> str:

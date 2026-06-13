@@ -584,11 +584,12 @@ export async function completeOnboardingWithVerifiedApiKey(
       return { ok: false, message: validation.message || '模型验证失败。' }
     }
 
+    const resolvedBaseUrl = validation.base_url?.trim() || baseUrl
     const assignment = await setModelAssignment({
       scope: 'main',
       provider: providerSlug,
       model,
-      ...(baseUrl ? { base_url: baseUrl } : {})
+      ...(resolvedBaseUrl ? { base_url: resolvedBaseUrl } : {})
     })
     notifyGatewayTools(assignment.gateway_tools)
     await ctx.requestGateway('reload.env').catch(() => undefined)

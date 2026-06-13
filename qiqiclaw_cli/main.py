@@ -6117,12 +6117,33 @@ def _detect_update_install_source(origin_url: Optional[str], env: Optional[dict[
     return "github"
 
 
+def _update_tmp_dir(base_env: Optional[dict[str, str]] = None) -> str:
+    env = base_env or os.environ
+    explicit = (env.get("QIQICLAW_UPDATE_TMPDIR") or "").strip()
+    if explicit:
+        return explicit
+    home = (env.get("QIQICLAW_HOME") or env.get("HERMES_HOME") or "").strip()
+    if home:
+        return str(Path(home).expanduser() / "tmp")
+    return str(Path.home() / ".qiqiclaw" / "tmp")
+
+
 def _update_dependency_env(origin_url: Optional[str], base_env: Optional[dict[str, str]] = None) -> dict[str, str]:
     """Environment for dependency work performed by `qiqiclaw update`."""
     env = dict(base_env or os.environ)
     source = _detect_update_install_source(origin_url, env)
     env["QIQICLAW_INSTALL_SOURCE"] = source
     env["HERMES_INSTALL_SOURCE"] = source
+    tmp_dir = _update_tmp_dir(env)
+    try:
+        Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    env["QIQICLAW_UPDATE_TMPDIR"] = tmp_dir
+    env["TMPDIR"] = tmp_dir
+    env["TEMP"] = tmp_dir
+    env["TMP"] = tmp_dir
+    env["npm_config_cache"] = str(Path(tmp_dir) / "npm-cache")
     if source == "gitee":
         env["PIP_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
         env["UV_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple"

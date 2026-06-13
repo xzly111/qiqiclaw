@@ -4,6 +4,12 @@ const DEFAULT_UPDATE_BRANCH = 'main'
 const DEFAULT_INSTALL_SOURCE = 'github'
 const VALID_INSTALL_SOURCES = new Set(['github', 'gitee'])
 
+function defaultUpdateTmpDir(env = process.env) {
+  const home = String(env.QIQICLAW_HOME || env.HERMES_HOME || '').trim()
+  if (home) return `${home.replace(/[\\/]$/, '')}/tmp`
+  return ''
+}
+
 function normalizeInstallSource(value) {
   const source = String(value || '').trim().toLowerCase()
   return VALID_INSTALL_SOURCES.has(source) ? source : null
@@ -43,9 +49,20 @@ function mirrorEnvForInstallSource(installSource) {
 function buildUpdateEnv({ installStamp, baseEnv = process.env, extraEnv = {} } = {}) {
   const installSource = installSourceFromRuntime({ installStamp, env: baseEnv })
   const mirrorEnv = mirrorEnvForInstallSource(installSource)
+  const tmpDir = String(extraEnv.QIQICLAW_UPDATE_TMPDIR || baseEnv.QIQICLAW_UPDATE_TMPDIR || defaultUpdateTmpDir(baseEnv)).trim()
+  const tmpEnv = tmpDir
+    ? {
+        QIQICLAW_UPDATE_TMPDIR: tmpDir,
+        TMPDIR: tmpDir,
+        TEMP: tmpDir,
+        TMP: tmpDir,
+        npm_config_cache: `${tmpDir.replace(/[\\/]$/, '')}/npm-cache`
+      }
+    : {}
   return {
     ...baseEnv,
     ...mirrorEnv,
+    ...tmpEnv,
     ...extraEnv,
     QIQICLAW_INSTALL_SOURCE: mirrorEnv.QIQICLAW_INSTALL_SOURCE,
     HERMES_INSTALL_SOURCE: mirrorEnv.HERMES_INSTALL_SOURCE
@@ -65,6 +82,7 @@ module.exports = {
   DEFAULT_UPDATE_BRANCH,
   buildUpdateEnv,
   branchArgsForUpdate,
+  defaultUpdateTmpDir,
   installSourceFromRuntime,
   mirrorEnvForInstallSource,
   normalizeInstallSource

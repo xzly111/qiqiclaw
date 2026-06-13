@@ -50,6 +50,29 @@ def _make_packaged_executable(root: Path, monkeypatch, platform: str = "darwin")
     return exe
 
 
+def test_desktop_packaged_executable_detects_qiqiclaw_names(tmp_path, monkeypatch):
+    root = _make_desktop_tree(tmp_path)
+    desktop_dir = root / "apps" / "desktop"
+
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    linux_exe = desktop_dir / "release" / "linux-unpacked" / "qiqiclaw-desktop"
+    linux_exe.parent.mkdir(parents=True)
+    linux_exe.write_text("", encoding="utf-8")
+    assert cli_main._desktop_packaged_executable(desktop_dir) == linux_exe
+
+    monkeypatch.setattr(cli_main.sys, "platform", "win32")
+    win_exe = desktop_dir / "release" / "win-unpacked" / "qiqiclaw-desktop.exe"
+    win_exe.parent.mkdir(parents=True)
+    win_exe.write_text("", encoding="utf-8")
+    assert cli_main._desktop_packaged_executable(desktop_dir) == win_exe
+
+    monkeypatch.setattr(cli_main.sys, "platform", "darwin")
+    mac_exe = desktop_dir / "release" / "mac-arm64" / "QiQiClaw Desktop.app" / "Contents" / "MacOS" / "qiqiclaw-desktop"
+    mac_exe.parent.mkdir(parents=True)
+    mac_exe.write_text("", encoding="utf-8")
+    assert cli_main._desktop_packaged_executable(desktop_dir) == mac_exe
+
+
 def test_gui_installs_packages_and_launches_desktop_app(tmp_path, monkeypatch):
     root = _make_desktop_tree(tmp_path)
     desktop_dir = root / "apps" / "desktop"
@@ -70,7 +93,11 @@ def test_gui_installs_packages_and_launches_desktop_app(tmp_path, monkeypatch):
         cli_main.cmd_gui(_ns())
 
     assert exc.value.code == 0
-    mock_install.assert_called_once_with("/usr/bin/npm", root, capture_output=False)
+    mock_install.assert_called_once()
+    assert mock_install.call_args.args == ("/usr/bin/npm", root)
+    assert mock_install.call_args.kwargs["capture_output"] is False
+    assert mock_install.call_args.kwargs["env"]["TMPDIR"].endswith("/tmp")
+    assert mock_install.call_args.kwargs["env"]["TMPDIR"] == mock_install.call_args.kwargs["env"]["QIQICLAW_UPDATE_TMPDIR"]
     assert mock_run.call_args_list[0].args[0] == ["/usr/bin/npm", "run", "pack"]
     assert mock_run.call_args_list[0].kwargs["cwd"] == desktop_dir
     assert mock_run.call_args_list[1].args[0] == [str(packaged_exe)]
@@ -304,6 +331,8 @@ def test_desktop_force_build_overrides_stamp(tmp_path, monkeypatch):
 
     assert exc.value.code == 0
     mock_install.assert_called_once()
+    assert mock_install.call_args.kwargs["env"]["TMPDIR"].endswith("/tmp")
+    assert mock_install.call_args.kwargs["env"]["TMPDIR"] == mock_install.call_args.kwargs["env"]["QIQICLAW_UPDATE_TMPDIR"]
     mock_stamp.assert_called_once()
     # pack + launch = 2 calls
     assert mock_run.call_count == 2

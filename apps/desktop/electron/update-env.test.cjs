@@ -4,6 +4,7 @@ const test = require('node:test')
 const {
   buildUpdateEnv,
   branchArgsForUpdate,
+  defaultUpdateTmpDir,
   installSourceFromRuntime,
   mirrorEnvForInstallSource,
   normalizeInstallSource
@@ -42,6 +43,7 @@ test('buildUpdateEnv forces source and mirrors over stale process values', () =>
     baseEnv: {
       QIQICLAW_INSTALL_SOURCE: 'github',
       PIP_INDEX_URL: 'https://pypi.org/simple',
+      QIQICLAW_HOME: '/home/me/.qiqiclaw',
       PATH: '/usr/bin'
     },
     extraEnv: { HERMES_HOME: '/tmp/qiqiclaw' }
@@ -50,7 +52,16 @@ test('buildUpdateEnv forces source and mirrors over stale process values', () =>
   assert.equal(env.HERMES_INSTALL_SOURCE, 'gitee')
   assert.equal(env.HERMES_HOME, '/tmp/qiqiclaw')
   assert.match(env.PIP_INDEX_URL, /tuna\.tsinghua\.edu\.cn/)
+  assert.equal(env.QIQICLAW_UPDATE_TMPDIR, '/home/me/.qiqiclaw/tmp')
+  assert.equal(env.TMPDIR, '/home/me/.qiqiclaw/tmp')
+  assert.equal(env.npm_config_cache, '/home/me/.qiqiclaw/tmp/npm-cache')
   assert.equal(env.PATH, '/usr/bin')
+})
+
+test('defaultUpdateTmpDir prefers the QiQiClaw home for rebuild scratch space', () => {
+  assert.equal(defaultUpdateTmpDir({ QIQICLAW_HOME: '/home/me/.qiqiclaw/' }), '/home/me/.qiqiclaw/tmp')
+  assert.equal(defaultUpdateTmpDir({ HERMES_HOME: '/home/me/.hermes' }), '/home/me/.hermes/tmp')
+  assert.equal(defaultUpdateTmpDir({}), '')
 })
 
 test('branchArgsForUpdate omits default main for old CLI compatibility', () => {

@@ -345,6 +345,7 @@ export interface ModelOptionsResponse {
 }
 
 export interface ModelRouteValidationResponse {
+  base_url?: string
   checked?: Array<{ index: number; message: string; ok: boolean }>
   credential_index?: number
   deduped?: boolean

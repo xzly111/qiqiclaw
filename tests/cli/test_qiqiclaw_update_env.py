@@ -16,6 +16,9 @@ def test_update_dependency_env_detects_gitee_origin_and_sets_domestic_mirrors():
     assert env["UV_DEFAULT_INDEX"] == "https://pypi.tuna.tsinghua.edu.cn/simple"
     assert env["npm_config_registry"] == "https://registry.npmmirror.com"
     assert env["QIQICLAW_NODE_DIST_BASE_URL"] == "https://registry.npmmirror.com/-/binary/node"
+    assert env["QIQICLAW_UPDATE_TMPDIR"].endswith("/.qiqiclaw/tmp")
+    assert env["TMPDIR"] == env["QIQICLAW_UPDATE_TMPDIR"]
+    assert env["npm_config_cache"].endswith("/.qiqiclaw/tmp/npm-cache")
     assert env["PATH"] == "/usr/bin"
 
 
@@ -39,6 +42,18 @@ def test_update_dependency_env_explicit_source_overrides_origin():
 
     assert env["QIQICLAW_INSTALL_SOURCE"] == "gitee"
     assert env["UV_DEFAULT_INDEX"] == "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+
+def test_update_dependency_env_uses_explicit_tmpdir():
+    env = qiqiclaw_main._update_dependency_env(
+        "git@github.com:xzly111/qiqiclaw.git",
+        {"QIQICLAW_UPDATE_TMPDIR": "/work/tmp"},
+    )
+
+    assert env["TMPDIR"] == "/work/tmp"
+    assert env["TEMP"] == "/work/tmp"
+    assert env["TMP"] == "/work/tmp"
+    assert env["npm_config_cache"] == "/work/tmp/npm-cache"
 
 
 def test_resolve_update_branch_defaults_to_main_and_accepts_override():

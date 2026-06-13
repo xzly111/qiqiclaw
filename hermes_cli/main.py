@@ -7024,6 +7024,7 @@ def _run_npm_install_deterministic(
     *,
     extra_args: tuple[str, ...] = (),
     capture_output: bool = True,
+    env: Optional[dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """Run a deterministic npm install that does not mutate ``package-lock.json``.
 
@@ -7045,6 +7046,7 @@ def _run_npm_install_deterministic(
             encoding="utf-8",
             errors="replace",
             check=False,
+            env=env,
         )
         if ci_result.returncode == 0:
             return ci_result
@@ -7059,6 +7061,7 @@ def _run_npm_install_deterministic(
         encoding="utf-8",
         errors="replace",
         check=False,
+        env=env,
     )
 
 
@@ -7331,15 +7334,23 @@ def _desktop_packaged_executable(desktop_dir: Path) -> Optional[Path]:
     """Return the current platform's unpacked Electron app executable."""
     release_dir = desktop_dir / "release"
     if sys.platform == "darwin":
-        candidates = list(release_dir.glob("mac*/Hermes.app/Contents/MacOS/Hermes"))
+        candidates = [
+            *release_dir.glob("mac*/QiQiClaw Desktop.app/Contents/MacOS/qiqiclaw-desktop"),
+            *release_dir.glob("mac*/Hermes.app/Contents/MacOS/Hermes"),
+        ]
     elif sys.platform == "win32":
         candidates = [
+            release_dir / "win-unpacked" / "qiqiclaw-desktop.exe",
+            release_dir / "win-ia32-unpacked" / "qiqiclaw-desktop.exe",
+            release_dir / "win-arm64-unpacked" / "qiqiclaw-desktop.exe",
             release_dir / "win-unpacked" / "Hermes.exe",
             release_dir / "win-ia32-unpacked" / "Hermes.exe",
             release_dir / "win-arm64-unpacked" / "Hermes.exe",
         ]
     else:
         candidates = [
+            release_dir / "linux-unpacked" / "qiqiclaw-desktop",
+            release_dir / "linux-arm64-unpacked" / "qiqiclaw-desktop",
             release_dir / "linux-unpacked" / "hermes",
             release_dir / "linux-unpacked" / "Hermes",
             release_dir / "linux-arm64-unpacked" / "hermes",
@@ -7537,6 +7548,20 @@ def cmd_gui(args: argparse.Namespace):
         pass
 
     env = os.environ.copy()
+    tmp_dir = (env.get("QIQICLAW_UPDATE_TMPDIR") or env.get("HERMES_UPDATE_TMPDIR") or "").strip()
+    if not tmp_dir:
+        home = (env.get("QIQICLAW_HOME") or env.get("HERMES_HOME") or "").strip()
+        tmp_dir = str((Path(home).expanduser() if home else Path.home() / ".qiqiclaw") / "tmp")
+    try:
+        Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    env.setdefault("QIQICLAW_UPDATE_TMPDIR", tmp_dir)
+    env.setdefault("HERMES_UPDATE_TMPDIR", tmp_dir)
+    env["TMPDIR"] = tmp_dir
+    env["TEMP"] = tmp_dir
+    env["TMP"] = tmp_dir
+    env["npm_config_cache"] = str(Path(tmp_dir) / "npm-cache")
     if getattr(args, "fake_boot", False):
         env["HERMES_DESKTOP_BOOT_FAKE"] = "1"
     if getattr(args, "ignore_existing", False):
@@ -7594,7 +7619,7 @@ def cmd_gui(args: argparse.Namespace):
             print(f"✓ Desktop {build_label} is up to date (content stamp matches)")
         else:
             print("→ Installing desktop workspace dependencies...")
-            install_result = _run_npm_install_deterministic(npm, PROJECT_ROOT, capture_output=False)
+            install_result = _run_npm_install_deterministic(npm, PROJECT_ROOT, capture_output=False, env=env)
             if install_result.returncode != 0:
                 print("✗ Desktop dependency install failed")
                 print(f"  Run manually:  cd {PROJECT_ROOT} && npm ci")
