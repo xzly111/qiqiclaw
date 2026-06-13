@@ -462,6 +462,42 @@ function Sync-EnvPath {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")
 }
 
+function Test-IsWindowsAdmin {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-ElevatedPackageCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$Description,
+        [Parameter(Mandatory = $true)][string]$CommandLine
+    )
+
+    if (Test-IsWindowsAdmin) {
+        Write-Info "Running as administrator: $Description"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $CommandLine
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    Write-Info "$Description requires administrator permission."
+    Write-Info "A Windows UAC prompt may appear."
+    try {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($CommandLine))
+        $proc = Start-Process -FilePath "powershell.exe" `
+            -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded `
+            -Verb RunAs -Wait -PassThru
+        return ($proc.ExitCode -eq 0)
+    } catch {
+        Write-Warn "Could not launch elevated installer for $Description : $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # Re-discover uv without re-installing it.  Cross-process stage drivers
 # (the desktop GUI's onboarding wizard, CI step-runners) invoke each stage
 # in a fresh powershell process, so $script:UvCmd set by Install-Uv in a
@@ -1075,6 +1111,15 @@ function Install-SystemPackages {
             Remove-Item -Path $pkgLogs["BurntSushi.ripgrep.MSVC"] -ErrorAction SilentlyContinue
         } elseif ($pkgLogs.ContainsKey("BurntSushi.ripgrep.MSVC")) {
             Write-Warn "winget could not install ripgrep; details: $($pkgLogs['BurntSushi.ripgrep.MSVC'])"
+            $cmd = "winget install --exact --id BurntSushi.ripgrep.MSVC --source winget --silent --accept-package-agreements --accept-source-agreements"
+            if (Invoke-ElevatedPackageCommand -Description "Installing ripgrep via winget" -CommandLine $cmd) {
+                Sync-EnvPath
+                if (Get-Command rg -ErrorAction SilentlyContinue) {
+                    Write-Success "ripgrep installed via elevated winget"
+                    $script:HasRipgrep = $true
+                    $needRipgrep = $false
+                }
+            }
         }
         if ($needFfmpeg -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
             Write-Success "ffmpeg installed"
@@ -1083,6 +1128,15 @@ function Install-SystemPackages {
             Remove-Item -Path $pkgLogs["Gyan.FFmpeg"] -ErrorAction SilentlyContinue
         } elseif ($pkgLogs.ContainsKey("Gyan.FFmpeg")) {
             Write-Warn "winget could not install ffmpeg; details: $($pkgLogs['Gyan.FFmpeg'])"
+            $cmd = "winget install --exact --id Gyan.FFmpeg --source winget --silent --accept-package-agreements --accept-source-agreements"
+            if (Invoke-ElevatedPackageCommand -Description "Installing ffmpeg via winget" -CommandLine $cmd) {
+                Sync-EnvPath
+                if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+                    Write-Success "ffmpeg installed via elevated winget"
+                    $script:HasFfmpeg = $true
+                    $needFfmpeg = $false
+                }
+            }
         }
         if (-not $needRipgrep -and -not $needFfmpeg) { return }
     }
@@ -1092,7 +1146,11 @@ function Install-SystemPackages {
         Write-Info "Trying Chocolatey..."
         foreach ($pkg in $chocoPkgs) {
             try { choco install $pkg -y 2>&1 | Out-Null } catch { }
+            if ($LASTEXITCODE -ne 0) {
+                Invoke-ElevatedPackageCommand -Description "Installing $pkg via Chocolatey" -CommandLine "choco install $pkg -y" | Out-Null
+            }
         }
+        Sync-EnvPath
         if ($needRipgrep -and (Get-Command rg -ErrorAction SilentlyContinue)) {
             Write-Success "ripgrep installed via chocolatey"
             $script:HasRipgrep = $true

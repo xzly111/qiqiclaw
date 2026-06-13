@@ -381,6 +381,69 @@ prompt_yes_no() {
     esac
 }
 
+quote_shell_args() {
+    local out=""
+    local arg
+    for arg in "$@"; do
+        printf -v arg "%q" "$arg"
+        out="$out $arg"
+    done
+    printf '%s' "${out# }"
+}
+
+escape_applescript_string() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+
+run_privileged() {
+    local description="$1"
+    shift
+
+    if [ "$#" -eq 0 ]; then
+        return 1
+    fi
+
+    if [ "$(id -u 2>/dev/null || echo 1000)" -eq 0 ]; then
+        "$@"
+        return $?
+    fi
+
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo "$@"
+        return $?
+    fi
+
+    if command -v sudo >/dev/null 2>&1 && (: </dev/tty) 2>/dev/null; then
+        log_info "$description requires administrator permission."
+        log_info "If prompted, enter your sudo password."
+        sudo "$@" < /dev/tty
+        return $?
+    fi
+
+    if [ "$OS" = "linux" ] && command -v pkexec >/dev/null 2>&1; then
+        log_info "$description requires administrator permission."
+        log_info "A system authentication dialog may appear."
+        pkexec "$@"
+        return $?
+    fi
+
+    if [ "$OS" = "macos" ] && command -v osascript >/dev/null 2>&1; then
+        local quoted
+        quoted="$(quote_shell_args "$@")"
+        log_info "$description requires administrator permission."
+        log_info "A macOS administrator authentication dialog may appear."
+        osascript -e "do shell script \"$(escape_applescript_string "$quoted")\" with administrator privileges"
+        return $?
+    fi
+
+    log_warn "Cannot request administrator permission automatically for: $description"
+    log_info "Run manually: $(quote_shell_args "$@")"
+    return 1
+}
+
 is_termux() {
     [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux/files/usr"* ]]
 }
@@ -1094,69 +1157,36 @@ install_system_packages() {
     fi
 
     # ── Linux: resolve package manager command ──
-    local pkg_install=""
+    local pkg_install=()
     case "$DISTRO" in
-        ubuntu|debian) pkg_install="apt install -y"   ;;
-        fedora)        pkg_install="dnf install -y"   ;;
-        arch)          pkg_install="pacman -S --noconfirm" ;;
+        ubuntu|debian) pkg_install=(apt install -y) ;;
+        fedora)        pkg_install=(dnf install -y) ;;
+        arch)          pkg_install=(pacman -S --noconfirm --needed) ;;
     esac
 
-    if [ -n "$pkg_install" ]; then
-        local install_cmd="$pkg_install ${pkgs[*]}"
-
+    if [ "${#pkg_install[@]}" -gt 0 ]; then
         # Prevent needrestart/whiptail dialogs from blocking non-interactive installs
         case "$DISTRO" in
             ubuntu|debian) export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a ;;
         esac
 
-        # Already root — just install
-        if [ "$(id -u)" -eq 0 ]; then
+        if [ "$(id -u 2>/dev/null || echo 1000)" -eq 0 ] || (command -v sudo &> /dev/null && sudo -n true 2>/dev/null); then
             log_info "Installing ${pkgs[*]}..."
-            if $install_cmd; then
+            if run_privileged "Installing ${description}" env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a "${pkg_install[@]}" "${pkgs[@]}"; then
                 [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
                 [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
                 return 0
             fi
-        # Passwordless sudo — just install
-        elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
-            log_info "Installing ${pkgs[*]}..."
-            if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
+        else
+            echo ""
+            log_info "Administrator permission is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
+            log_info "QIQI-Claw itself does not require or retain administrator access."
+            if [ "$IS_INTERACTIVE" = true ] && ! prompt_yes_no "Install ${description}? (requires administrator permission)" "yes"; then
+                log_info "Skipped optional system packages by user choice."
+            elif run_privileged "Installing ${description}" env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a "${pkg_install[@]}" "${pkgs[@]}"; then
                 [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
                 [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
                 return 0
-            fi
-        # sudo needs password — ask once for everything
-        elif command -v sudo &> /dev/null; then
-            if [ "$IS_INTERACTIVE" = true ]; then
-                echo ""
-                log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "QIQI-Claw itself does not require or retain root access."
-                if prompt_yes_no "Install ${description}? (requires sudo)" "no"; then
-                    if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
-                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
-                        return 0
-                    fi
-                fi
-            elif (: </dev/tty) 2>/dev/null; then
-                # Non-interactive (e.g. curl | bash) but a terminal is available.
-                # Read the prompt from /dev/tty (same approach the setup wizard uses).
-                # Probe by actually opening /dev/tty: a bare existence test passes
-                # in Docker builds where the device node is in the mount namespace
-                # but opening fails with ENXIO. See #16746.
-                echo ""
-                log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
-                log_info "QIQI-Claw itself does not require or retain root access."
-                if prompt_yes_no "Install ${description}?" "yes"; then
-                    if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd < /dev/tty; then
-                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
-                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
-                        return 0
-                    fi
-                fi
-            else
-                log_warn "Non-interactive mode and no terminal available — cannot install system packages"
-                log_info "Install manually after setup completes: sudo $install_cmd"
             fi
         fi
     fi
@@ -1856,6 +1886,74 @@ run_browser_install_with_timeout() {
     fi
 }
 
+install_playwright_system_deps() {
+    case "$DISTRO" in
+        ubuntu|debian|raspbian|pop|linuxmint|elementary|zorin|kali|parrot)
+            local npx_cmd
+            npx_cmd="$(command -v npx 2>/dev/null || true)"
+            if [ -z "$npx_cmd" ]; then
+                log_warn "npx not found; cannot install Playwright system dependencies automatically"
+                return 1
+            fi
+            log_info "Installing Playwright system dependencies..."
+            run_privileged "Installing Playwright Chromium system dependencies" env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a PATH="$PATH" "$npx_cmd" playwright install-deps chromium
+            ;;
+        arch|manjaro|cachyos|endeavouros|garuda)
+            if ! command -v pacman >/dev/null 2>&1; then
+                return 1
+            fi
+            log_info "Installing Chromium system dependencies via pacman..."
+            run_privileged "Installing Chromium system dependencies" pacman -S --noconfirm --needed \
+                nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib
+            ;;
+        fedora|rhel|centos|rocky|alma)
+            if ! command -v dnf >/dev/null 2>&1; then
+                return 1
+            fi
+            log_info "Installing Chromium system dependencies via dnf..."
+            run_privileged "Installing Chromium system dependencies" dnf install -y \
+                nss atk at-spi2-core cups-libs libdrm libxkbcommon mesa-libgbm pango cairo alsa-lib
+            ;;
+        opensuse*|sles)
+            if ! command -v zypper >/dev/null 2>&1; then
+                return 1
+            fi
+            log_info "Installing Chromium system dependencies via zypper..."
+            run_privileged "Installing Chromium system dependencies" zypper install -y \
+                mozilla-nss libatk-1_0-0 at-spi2-core cups-libs libdrm2 libxkbcommon0 Mesa-libgbm1 pango cairo libasound2
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+install_system_chromium_fallback() {
+    case "$DISTRO" in
+        ubuntu|debian|raspbian|pop|linuxmint|elementary|zorin|kali|parrot)
+            local candidate
+            for candidate in chromium-browser chromium; do
+                if run_privileged "Installing system Chromium browser" env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt install -y "$candidate"; then
+                    return 0
+                fi
+            done
+            return 1
+            ;;
+        arch|manjaro|cachyos|endeavouros|garuda)
+            run_privileged "Installing system Chromium browser" pacman -S --noconfirm --needed chromium
+            ;;
+        fedora|rhel|centos|rocky|alma)
+            run_privileged "Installing system Chromium browser" dnf install -y chromium
+            ;;
+        opensuse*|sles)
+            run_privileged "Installing system Chromium browser" zypper install -y chromium
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 configure_browser_env_from_system_browser() {
     local env_file="$HERMES_HOME/.env"
     local browser_path="${DETECTED_BROWSER_EXECUTABLE:-}"
@@ -1924,75 +2022,25 @@ install_node_deps() {
             log_success "Found system Chrome/Chromium at $DETECTED_BROWSER_EXECUTABLE"
             log_info "Skipping Playwright browser download; QiQiClaw will use the system browser."
         else
-            case "$DISTRO" in
-                ubuntu|debian|raspbian|pop|linuxmint|elementary|zorin|kali|parrot)
-                    # Use --with-deps only when sudo is available non-interactively
-                    # (root, or a user with passwordless sudo). Non-sudo users
-                    # — typical for systemd service accounts and unprivileged
-                    # operator users — would otherwise get blocked on an
-                    # interactive sudo prompt that they can't satisfy. Fall back
-                    # to the browser-only install in that case, and print the
-                    # exact command the admin needs to run separately.
-                    if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
-                        log_info "Installing Playwright Chromium with system dependencies..."
-                        cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install --with-deps chromium 2>/dev/null || {
-                            log_warn "Playwright browser installation failed — browser tools will not work."
-                            log_warn "Try running manually: cd $INSTALL_DIR && npx playwright install --with-deps chromium"
-                        }
-                    else
-                        log_warn "No sudo available — skipping system-library install (--with-deps)."
-                        log_info "Ask an administrator to run, one time, as root:"
-                        log_info "  sudo npx playwright install-deps chromium"
-                        log_info "  (from $INSTALL_DIR, after Node.js deps are installed)"
-                        log_info "Installing Chromium binary into this user's Playwright cache..."
-                        cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || {
-                            log_warn "Playwright browser installation failed — browser tools will not work."
-                            log_warn "Try running manually: cd $INSTALL_DIR && npx playwright install chromium"
-                        }
-                    fi
-                    ;;
-                arch|manjaro|cachyos|endeavouros|garuda)
-                    if command -v pacman &> /dev/null; then
-                        log_info "Arch-family distro detected — installing Chromium system dependencies via pacman..."
-                        if command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
-                            sudo NEEDRESTART_MODE=a pacman -S --noconfirm --needed \
-                                nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib >/dev/null 2>&1 || true
-                        elif [ "$(id -u)" -eq 0 ]; then
-                            pacman -S --noconfirm --needed \
-                                nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib >/dev/null 2>&1 || true
-                        else
-                            log_warn "Cannot install browser deps without sudo. Run manually:"
-                            log_warn "  sudo pacman -S nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib"
-                        fi
-                    fi
-                    cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || {
-                        log_warn "Playwright browser installation failed — browser tools will not work."
-                    }
-                    ;;
-                fedora|rhel|centos|rocky|alma)
-                    log_warn "Playwright does not support automatic dependency installation on RPM-based systems."
-                    log_info "Install Chromium system dependencies manually before using browser tools:"
-                    log_info "  sudo dnf install nss atk at-spi2-core cups-libs libdrm libxkbcommon mesa-libgbm pango cairo alsa-lib"
-                    cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || {
-                        log_warn "Playwright browser installation failed — install dependencies above and retry."
-                    }
-                    ;;
-                opensuse*|sles)
-                    log_warn "Playwright does not support automatic dependency installation on zypper-based systems."
-                    log_info "Install Chromium system dependencies manually before using browser tools:"
-                    log_info "  sudo zypper install mozilla-nss libatk-1_0-0 at-spi2-core cups-libs libdrm2 libxkbcommon0 Mesa-libgbm1 pango cairo libasound2"
-                    cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || {
-                        log_warn "Playwright browser installation failed — install dependencies above and retry."
-                    }
-                    ;;
-                *)
-                    log_warn "Playwright does not support automatic dependency installation on $DISTRO."
-                    log_info "Install Chromium/browser system dependencies for your distribution, then run:"
-                    log_info "  cd $INSTALL_DIR && npx playwright install chromium"
-                    log_info "Browser tools will not work until dependencies are installed."
-                    cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || true
-                    ;;
-            esac
+            install_playwright_system_deps || {
+                log_warn "Could not install Playwright system dependencies automatically."
+                log_info "Continuing with browser download/system-browser fallback."
+            }
+
+            cd "$INSTALL_DIR" && run_browser_install_with_timeout 600 npx playwright install chromium 2>/dev/null || {
+                log_warn "Playwright Chromium download failed or is unsupported on this OS."
+                log_info "Trying system Chrome/Chromium fallback..."
+                DETECTED_BROWSER_EXECUTABLE="$(find_system_browser 2>/dev/null || true)"
+                if [ -z "$DETECTED_BROWSER_EXECUTABLE" ] && install_system_chromium_fallback; then
+                    DETECTED_BROWSER_EXECUTABLE="$(find_system_browser 2>/dev/null || true)"
+                fi
+                if [ -n "$DETECTED_BROWSER_EXECUTABLE" ]; then
+                    configure_browser_env_from_system_browser
+                else
+                    log_warn "Browser tools will remain unavailable until Chromium is installed."
+                    log_warn "Try manually: cd $INSTALL_DIR && npx playwright install chromium"
+                fi
+            }
         fi
         fi
         log_success "Browser engine setup complete"
