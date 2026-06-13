@@ -14,14 +14,19 @@ DIAGNOSTICS_DIALOG = REPO_ROOT / "apps" / "desktop" / "src" / "components" / "fu
 def test_posix_installer_installs_desktop_voice_stt_dependencies() -> None:
     text = INSTALL_SH.read_text()
 
+    assert "Agent Client Protocol:acp:agent-client-protocol==0.9.0" in text
     assert "Desktop voice transcription:faster_whisper:faster-whisper==1.2.1" in text
     assert "Desktop voice audio IO:sounddevice:sounddevice==0.5.5" in text
     assert "Desktop voice numeric runtime:numpy:numpy==2.4.3" in text
+    assert "install_portaudio_runtime" in text
+    assert "libportaudio2" in text
+    assert "brew install portaudio" in text
 
 
 def test_windows_installer_installs_desktop_voice_stt_dependencies() -> None:
     text = INSTALL_PS1.read_text()
 
+    assert 'Label = "Agent Client Protocol"; Import = "acp"; Spec = "agent-client-protocol==0.9.0"' in text
     assert 'Label = "Desktop voice transcription"; Import = "faster_whisper"; Spec = "faster-whisper==1.2.1"' in text
     assert 'Label = "Desktop voice audio IO"; Import = "sounddevice"; Spec = "sounddevice==0.5.5"' in text
     assert 'Label = "Desktop voice numeric runtime"; Import = "numpy"; Spec = "numpy==2.4.3"' in text
@@ -51,6 +56,7 @@ def test_desktop_full_feature_diagnostics_waits_for_api_setup_and_prompts_user()
     assert "/api/model/info" in main
     assert "no configured model provider is ready yet" in main
     assert "apiReachable: false" in main
+    assert "module: 'acp'" in main
     assert "fullFeatureInstallSource" in main
     assert "source === 'github' || source === 'gitee'" in main
     assert "'--source', installSource" in main

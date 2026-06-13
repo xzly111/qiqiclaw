@@ -1266,6 +1266,63 @@ show_manual_install_hint() {
     esac
 }
 
+install_portaudio_runtime() {
+    local python_bin="${1:-$INSTALL_DIR/venv/bin/python}"
+
+    if [ "$OS" != "linux" ] && [ "$OS" != "macos" ]; then
+        return 1
+    fi
+
+    if [ -x "$python_bin" ] && "$python_bin" -c "import sounddevice" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ "$OS" = "macos" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            log_info "Installing PortAudio runtime via Homebrew for desktop voice audio..."
+            brew install portaudio && return 0
+        fi
+        log_warn "PortAudio is required for desktop voice audio."
+        log_info "Install manually: brew install portaudio"
+        return 1
+    fi
+
+    local pkg_install=()
+    local pkgs=()
+    case "$DISTRO" in
+        ubuntu|debian)
+            pkg_install=(apt-get install -y)
+            pkgs=(libportaudio2)
+            ;;
+        fedora)
+            pkg_install=(dnf install -y)
+            pkgs=(portaudio)
+            ;;
+        arch)
+            pkg_install=(pacman -S --noconfirm --needed)
+            pkgs=(portaudio)
+            ;;
+        *)
+            log_warn "PortAudio is required for desktop voice audio, but this Linux distribution is not recognized."
+            log_info "Install your distribution's PortAudio runtime package, then run the repair again."
+            return 1
+            ;;
+    esac
+
+    log_info "Installing PortAudio runtime for desktop voice audio: ${pkgs[*]}"
+    if run_privileged "Installing PortAudio runtime for desktop voice audio" env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a "${pkg_install[@]}" "${pkgs[@]}"; then
+        return 0
+    fi
+
+    log_warn "Could not install PortAudio automatically; desktop voice audio will remain unavailable."
+    case "$DISTRO" in
+        ubuntu|debian) log_info "Run manually: sudo apt-get install -y libportaudio2" ;;
+        fedora)        log_info "Run manually: sudo dnf install -y portaudio" ;;
+        arch)          log_info "Run manually: sudo pacman -S --needed portaudio" ;;
+    esac
+    return 1
+}
+
 # ============================================================================
 # Installation
 # ============================================================================
@@ -2121,7 +2178,7 @@ install_platform_sdks() {
         "WeCom callback XML safety:defusedxml:defusedxml==0.7.1"
         "QR code pairing:qrcode:qrcode==7.4.2"
         "CLI menu:simple_term_menu:simple-term-menu==1.6.6"
-        "Agent Client Protocol:agent_client_protocol:agent-client-protocol==0.9.0"
+        "Agent Client Protocol:acp:agent-client-protocol==0.9.0"
         "Desktop voice transcription:faster_whisper:faster-whisper==1.2.1"
         "Desktop voice audio IO:sounddevice:sounddevice==0.5.5"
         "Desktop voice numeric runtime:numpy:numpy==2.4.3"
@@ -2140,6 +2197,30 @@ install_platform_sdks() {
         else
             log_warn "$label NOT importable ($module)"
             missing+=("$item")
+        fi
+    done
+
+    if [ "${#missing[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    for item in "${missing[@]}"; do
+        IFS=':' read -r label module spec <<< "$item"
+        if [ "$module" = "sounddevice" ]; then
+            install_portaudio_runtime "$python_bin" || true
+            if "$python_bin" -c "import sounddevice" >/dev/null 2>&1; then
+                log_success "Desktop voice audio IO OK after PortAudio install"
+                local filtered=()
+                local check_item check_label check_module check_spec
+                for check_item in "${missing[@]}"; do
+                    IFS=':' read -r check_label check_module check_spec <<< "$check_item"
+                    if [ "$check_module" != "sounddevice" ]; then
+                        filtered+=("$check_item")
+                    fi
+                done
+                missing=("${filtered[@]}")
+            fi
+            break
         fi
     done
 

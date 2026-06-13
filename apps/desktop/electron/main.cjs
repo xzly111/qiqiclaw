@@ -4513,7 +4513,7 @@ const FULL_FEATURE_CHECKS = Object.freeze([
   { id: 'wecom-xml', label: 'WeCom callback XML safety', module: 'defusedxml' },
   { id: 'qr-code', label: 'QR code pairing', module: 'qrcode' },
   { id: 'cli-menu', label: 'CLI menu', module: 'simple_term_menu' },
-  { id: 'acp', label: 'Agent Client Protocol', module: 'agent_client_protocol' },
+  { id: 'acp', label: 'Agent Client Protocol', module: 'acp' },
   { id: 'voice-transcription', label: 'Desktop voice transcription', module: 'faster_whisper' },
   { id: 'voice-audio', label: 'Desktop voice audio IO', module: 'sounddevice' },
   { id: 'voice-numeric', label: 'Desktop voice numeric runtime', module: 'numpy' },

@@ -2526,7 +2526,7 @@ function Install-PlatformSdks {
         @{ Label = "WeCom callback XML safety"; Import = "defusedxml"; Spec = "defusedxml==0.7.1" },
         @{ Label = "QR code pairing"; Import = "qrcode"; Spec = "qrcode==7.4.2" },
         @{ Label = "CLI menu"; Import = "simple_term_menu"; Spec = "simple-term-menu==1.6.6" },
-        @{ Label = "Agent Client Protocol"; Import = "agent_client_protocol"; Spec = "agent-client-protocol==0.9.0" },
+        @{ Label = "Agent Client Protocol"; Import = "acp"; Spec = "agent-client-protocol==0.9.0" },
         @{ Label = "Desktop voice transcription"; Import = "faster_whisper"; Spec = "faster-whisper==1.2.1" },
         @{ Label = "Desktop voice audio IO"; Import = "sounddevice"; Spec = "sounddevice==0.5.5" },
         @{ Label = "Desktop voice numeric runtime"; Import = "numpy"; Spec = "numpy==2.4.3" },
