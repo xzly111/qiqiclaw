@@ -108,6 +108,7 @@ export function ChatBar({
   busy,
   cwd,
   disabled,
+  extraAtMentions,
   focusKey,
   gateway,
   maxRecordingSeconds = 120,
@@ -162,7 +163,13 @@ export function ChatBar({
 
   const narrow = useMediaQuery('(max-width: 30rem)')
 
-  const at = useAtCompletions({ gateway: gateway ?? null, sessionId: sessionId ?? null, cwd: cwd ?? null })
+  const at = useAtCompletions({
+    extraMentions: extraAtMentions,
+    gateway: gateway ?? null,
+    sessionId: sessionId ?? null,
+    cwd: cwd ?? null
+  })
+
   const slash = useSlashCompletions({ gateway: gateway ?? null })
 
   const stacked = expanded || narrow || tight
@@ -171,10 +178,12 @@ export function ChatBar({
   const canSubmit = busy || hasComposerPayload
   const editingQueuedPrompt = queueEdit ? (queuedPrompts.find(entry => entry.id === queueEdit.entryId) ?? null) : null
   const busyAction = busy && hasComposerPayload ? 'queue' : 'stop'
+
   // Steer only makes sense mid-turn, text-only (the gateway can't carry images
   // into a tool result) and never for a slash command (those execute inline).
   const canSteer =
     busy && !!onSteer && attachments.length === 0 && trimmedDraft.length > 0 && !SLASH_COMMAND_RE.test(trimmedDraft)
+
   const showHelpHint = draft === '?'
 
   const { t } = useI18n()
@@ -620,7 +629,8 @@ export function ChatBar({
       return
     }
 
-    const serialized = hermesDirectiveFormatter.serialize(item)
+    const metadata = item.metadata as { plainText?: string; rawText?: string } | undefined
+    const serialized = metadata?.plainText === 'true' && metadata.rawText ? metadata.rawText : hermesDirectiveFormatter.serialize(item)
     const starter = serialized.endsWith(':')
     const text = starter || serialized.endsWith(' ') ? serialized : `${serialized} `
     const directive = !starter && serialized.match(/^@([^:]+):(.+)$/)

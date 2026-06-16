@@ -287,6 +287,132 @@ export interface SavedModel {
   verified?: boolean
 }
 
+export type GroupAgentRoleType =
+  | 'proposer'
+  | 'opponent'
+  | 'fact_checker'
+  | 'risk_reviewer'
+  | 'execution_reviewer'
+  | 'consensus_builder'
+  | 'custom'
+
+export interface GroupRoom {
+  created_at: number
+  id: string
+  last_run_id?: null | string
+  objective: string
+  status: string
+  title: string
+  updated_at: number
+}
+
+export interface GroupAgentRole {
+  base_url_snapshot?: null | string
+  can_monitor_main_agent?: boolean
+  can_push: boolean
+  can_publish: boolean
+  can_read_files?: boolean
+  can_real_execute: boolean
+  can_suggest_changes?: boolean
+  can_spawn_validation_subagents: boolean
+  can_write_files: boolean
+  created_at: number
+  credential_index_snapshot?: null | number
+  description: string
+  enabled: boolean
+  id: string
+  model_snapshot?: null | string
+  model_status: 'missing' | 'ok' | 'unverified' | string
+  name: string
+  participates_in_consensus: boolean
+  provider_snapshot?: null | string
+  receives_all: boolean
+  role_type: GroupAgentRoleType
+  room_id: string
+  sandbox_only?: boolean
+  saved_model_id?: null | string
+  updated_at: number
+}
+
+export interface GroupMessage {
+  attachments: Array<Record<string, unknown>>
+  content: string
+  created_at: number
+  id: string
+  mentions: string[]
+  phase: string
+  reasoning?: null | string
+  reasoning_content?: null | string
+  reasoning_details?: unknown
+  room_id: string
+  round_index: number
+  run_id?: null | string
+  sender_name: string
+  sender_role_id?: null | string
+  sender_type: 'agent' | 'system' | 'user'
+}
+
+export interface GroupRun {
+  ended_at?: null | number
+  id: string
+  phase: string
+  room_id: string
+  round_index: number
+  started_at: number
+  status: 'completed' | 'draft' | 'interrupted' | 'running' | string
+  user_decision_state: string
+}
+
+export interface GroupDecision {
+  confirmed_at?: null | number
+  consensus: string
+  created_at: number
+  disagreements: string
+  id: string
+  recommended_next_action: string
+  risks: string
+  room_id: string
+  run_id: string
+  summary: string
+  user_confirmed: boolean
+}
+
+export interface GroupRoomBundle {
+  agents: GroupAgentRole[]
+  last_run?: GroupRun | null
+  messages: GroupMessage[]
+  room: GroupRoom
+}
+
+export interface GroupRoomsResponse {
+  rooms: GroupRoom[]
+}
+
+export interface GroupSessionsResponse {
+  sessions: SessionInfo[]
+}
+
+export interface GroupMessageCreateResponse {
+  message: GroupMessage
+  replies?: GroupMessage[]
+  routed_agents: GroupAgentRole[]
+}
+
+export interface GroupRunResponse {
+  decision: GroupDecision
+  messages: GroupMessage[]
+  run: GroupRun
+}
+
+export interface GroupHandoffResponse {
+  can_real_execute?: boolean
+  handoff_prompt?: string
+  ready?: boolean
+  requires_user_confirmation?: boolean
+  room_id: string
+  run_id: string
+}
+
 export interface ModelOptionEntry {
   base_url?: string
   credential_index?: number

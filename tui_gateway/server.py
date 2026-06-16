@@ -1453,7 +1453,7 @@ def _ensure_session_db_row(session: dict) -> None:
     try:
         db.create_session(
             key,
-            source="tui",
+            source=str(session.get("source") or "tui"),
             model=_resolve_model(),
             cwd=_session_cwd(session) if session.get("explicit_cwd") else None,
         )
@@ -3654,6 +3654,7 @@ def _(rid, params: dict) -> dict:
     # and each turn re-bind HERMES_HOME. None/own profile → launch (unchanged).
     profile = (params.get("profile") or "").strip() or None
     profile_home = _profile_home(profile)
+    source = str(params.get("source") or "tui").strip() or "tui"
 
     ready = threading.Event()
     now = time.time()
@@ -3678,6 +3679,7 @@ def _(rid, params: dict) -> dict:
             "pending_title": title or None,
             "profile_home": str(profile_home) if profile_home is not None else None,
             "running": False,
+            "source": source,
             "session_key": key,
             "show_reasoning": _load_show_reasoning(),
             "slash_worker": None,
@@ -3741,7 +3743,7 @@ def _(rid, params: dict) -> dict:
         # sources (``tool`` sub-agent runs) rather than allow-listing a
         # fixed set of platform names that goes stale whenever a new
         # platform is added or a user names their own source.
-        deny = frozenset({"tool"})
+        deny = frozenset({"tool", "group-chat-main"})
 
         limit = int(params.get("limit", 200) or 200)
         # Over-fetch modestly so per-source filtering doesn't leave us

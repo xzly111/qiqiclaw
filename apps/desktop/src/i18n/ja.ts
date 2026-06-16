@@ -1189,6 +1189,7 @@ export const ja = defineLocale({
   sidebar: {
     nav: {
       'new-session': '新しいセッション',
+      'group-chat': '新しいグループチャット',
       skills: 'スキルとツール',
       messaging: 'メッセージング',
       artifacts: 'アーティファクト'

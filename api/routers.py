@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from domain.adapters import api as adapters
 from domain.agent import api as agent
 from domain.config import api as config
+from domain.group_chat import api as group_chat
 from domain.plugins import api as plugins
 from domain.processors import api as processors
 from domain.tasks import api as tasks
@@ -17,6 +18,7 @@ def include_routers(app: FastAPI):
     app.include_router(search_api.router)
     app.include_router(virtual_fs.router)
     app.include_router(config.router)
+    app.include_router(group_chat.router)
     app.include_router(processors.router)
     app.include_router(tasks.router)
     app.include_router(plugins.router)

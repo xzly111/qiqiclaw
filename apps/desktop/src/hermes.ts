@@ -9,34 +9,44 @@ import type {
   AuxiliaryModelsResponse,
   ConfigSchemaResponse,
   CredentialPoolResponse,
-  ModelDiscoveryResponse,
   CronJob,
   CronJobCreatePayload,
   CronJobUpdates,
   ElevenLabsVoicesResponse,
   EnvVarInfo,
-  QiQiClawConfig,
-  QiQiClawConfigRecord,
+  GroupAgentRole,
+  GroupAgentRoleType,
+  GroupHandoffResponse,
+  GroupMessage,
+  GroupMessageCreateResponse,
+  GroupRoom,
+  GroupRoomBundle,
+  GroupRoomsResponse,
+  GroupRunResponse,
+  GroupSessionsResponse,
   LogsResponse,
   MessagingPlatformsResponse,
   MessagingPlatformTestResponse,
   MessagingPlatformUpdate,
   ModelAssignmentRequest,
   ModelAssignmentResponse,
+  ModelDiscoveryResponse,
   ModelInfoResponse,
-  ProviderCatalogResponse,
-  ModelRouteValidationResponse,
   ModelOptionsResponse,
+  ModelRouteValidationResponse,
   OAuthPollResponse,
   OAuthProvidersResponse,
   OAuthStartResponse,
   OAuthSubmitResponse,
   PaginatedSessions,
   ProfileCreatePayload,
-  SavedModel,
   ProfileSetupCommand,
   ProfileSoul,
   ProfilesResponse,
+  ProviderCatalogResponse,
+  QiQiClawConfig,
+  QiQiClawConfigRecord,
+  SavedModel,
   SessionInfo,
   SessionMessagesResponse,
   SessionSearchResponse,
@@ -48,6 +58,7 @@ import type {
 
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
 const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
+const MODEL_REQUEST_TIMEOUT_MS = 180_000
 
 export type {
   ActionResponse,
@@ -66,7 +77,6 @@ export type {
   CredentialPoolEntry,
   CredentialPoolProvider,
   CredentialPoolResponse,
-  ModelDiscoveryResponse,
   CronJob,
   CronJobCreatePayload,
   CronJobSchedule,
@@ -75,8 +85,18 @@ export type {
   ElevenLabsVoicesResponse,
   EnvVarInfo,
   GatewayReadyPayload,
-  QiQiClawConfig,
-  QiQiClawConfigRecord,
+  GroupAgentRole,
+  GroupAgentRoleType,
+  GroupDecision,
+  GroupHandoffResponse,
+  GroupMessage,
+  GroupMessageCreateResponse,
+  GroupRoom,
+  GroupRoomBundle,
+  GroupRoomsResponse,
+  GroupRun,
+  GroupRunResponse,
+  GroupSessionsResponse,
   LogsResponse,
   MessagingEnvVarInfo,
   MessagingHomeChannel,
@@ -86,20 +106,23 @@ export type {
   MessagingPlatformUpdate,
   ModelAssignmentRequest,
   ModelAssignmentResponse,
+  ModelDiscoveryResponse,
   ModelInfoResponse,
-  ProviderCatalogEntry,
-  ProviderCatalogResponse,
-  ModelRouteValidationResponse,
   ModelOptionProvider,
   ModelOptionsResponse,
+  ModelRouteValidationResponse,
   PaginatedSessions,
   ProfileCreatePayload,
   ProfileInfo,
-  SavedModel,
   ProfileSetupCommand,
   ProfileSoul,
   ProfilesResponse,
+  ProviderCatalogEntry,
+  ProviderCatalogResponse,
+  QiQiClawConfig,
+  QiQiClawConfigRecord,
   RpcEvent,
+  SavedModel,
   SessionCreateResponse,
   SessionInfo,
   SessionMessage,
@@ -125,6 +148,32 @@ export class QiQiClawGateway extends JsonRpcGatewayClient {
       requestTimeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS
     })
   }
+}
+
+interface ApiEnvelope<T> {
+  code?: number
+  data?: T
+  msg?: string
+}
+
+function unwrapApiData<T>(payload: ApiEnvelope<T> | T): T {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'code' in payload &&
+    'data' in payload &&
+    typeof (payload as ApiEnvelope<T>).code === 'number'
+  ) {
+    const envelope = payload as ApiEnvelope<T>
+
+    if (envelope.code !== 0) {
+      throw new Error(envelope.msg || 'QiQiClaw API request failed')
+    }
+
+    return envelope.data as T
+  }
+
+  return payload as T
 }
 
 // Profile that profile-scoped REST settings (config/env/skills/tools/model/…)
@@ -870,4 +919,207 @@ export function getElevenLabsVoices(): Promise<ElevenLabsVoicesResponse> {
   return window.hermesDesktop.api<ElevenLabsVoicesResponse>({
     path: '/api/audio/elevenlabs/voices'
   })
+}
+
+export async function listGroupRooms(): Promise<GroupRoomsResponse> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupRoomsResponse> | GroupRoomsResponse>({
+    ...profileScoped(),
+    path: '/api/group-chat/rooms'
+  })
+  )
+}
+
+export async function listGroupSessions(): Promise<GroupSessionsResponse> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupSessionsResponse> | GroupSessionsResponse>({
+    ...profileScoped(),
+    path: '/api/group-chat/sessions'
+  })
+  )
+}
+
+export async function createGroupRoom(body: { objective?: string; title?: string }): Promise<GroupRoomBundle> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupRoomBundle> | GroupRoomBundle>({
+    ...profileScoped(),
+    path: '/api/group-chat/rooms',
+    method: 'POST',
+    body
+  })
+  )
+}
+
+export async function getGroupRoom(roomId: string): Promise<GroupRoomBundle> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupRoomBundle> | GroupRoomBundle>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}`
+  })
+  )
+}
+
+export async function updateGroupRoom(
+  roomId: string,
+  body: { objective?: string; status?: string; title?: string }
+): Promise<GroupRoomBundle> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupRoomBundle> | GroupRoomBundle>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}`,
+    method: 'PATCH',
+    body
+  })
+  )
+}
+
+export async function deleteGroupRoom(roomId: string): Promise<{ ok: boolean }> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<{ ok: boolean }> | { ok: boolean }>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}`,
+    method: 'DELETE'
+  })
+  )
+}
+
+export async function createGroupAgent(
+  roomId: string,
+  body: {
+    base_url?: string | null
+    can_spawn_validation_subagents?: boolean
+    credential_index?: null | number
+    description?: string
+    model?: null | string
+    name: string
+    participates_in_consensus?: boolean
+    provider?: null | string
+    receives_all?: boolean
+    role_type?: GroupAgentRoleType
+    saved_model_id?: null | string
+  }
+): Promise<GroupAgentRole> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupAgentRole> | GroupAgentRole>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/agents`,
+    method: 'POST',
+    body
+  })
+  )
+}
+
+export async function updateGroupAgent(
+  roomId: string,
+  agentId: string,
+  body: Partial<{
+    base_url: null | string
+    can_spawn_validation_subagents: boolean
+    credential_index: null | number
+    description: string
+    enabled: boolean
+    model: null | string
+    name: string
+    participates_in_consensus: boolean
+    provider: null | string
+    receives_all: boolean
+    role_type: GroupAgentRoleType
+    saved_model_id: null | string
+  }>
+): Promise<GroupAgentRole> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupAgentRole> | GroupAgentRole>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}`,
+    method: 'PATCH',
+    body
+  })
+  )
+}
+
+export async function deleteGroupAgent(roomId: string, agentId: string): Promise<{ ok: boolean }> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<{ ok: boolean }> | { ok: boolean }>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}`,
+    method: 'DELETE'
+  })
+  )
+}
+
+export async function sendGroupMessage(
+  roomId: string,
+  body: { attachments?: Array<Record<string, unknown>>; content: string }
+): Promise<GroupMessageCreateResponse> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupMessageCreateResponse> | GroupMessageCreateResponse>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/messages`,
+    method: 'POST',
+    timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
+    body
+  })
+  )
+}
+
+export async function appendGroupAssistantMessage(
+  roomId: string,
+  body: {
+    content: string
+    reasoning?: null | string
+    reasoning_content?: null | string
+    sender_name?: string
+    sender_role_id?: null | string
+  }
+): Promise<{ message: GroupMessage; room: GroupRoom }> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<{ message: GroupMessage; room: GroupRoom }> | { message: GroupMessage; room: GroupRoom }>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/assistant-messages`,
+    method: 'POST',
+    timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
+    body
+  })
+  )
+}
+
+export async function startGroupRun(roomId: string, body: { prompt?: string }): Promise<GroupRunResponse> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupRunResponse> | GroupRunResponse>({
+    ...profileScoped(),
+    path: `/api/group-chat/rooms/${encodeURIComponent(roomId)}/runs`,
+    method: 'POST',
+    body
+  })
+  )
+}
+
+export async function prepareGroupHandoff(runId: string): Promise<GroupHandoffResponse> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<ApiEnvelope<GroupHandoffResponse> | GroupHandoffResponse>({
+    ...profileScoped(),
+    path: `/api/group-chat/runs/${encodeURIComponent(runId)}/prepare-handoff`,
+    method: 'POST'
+  })
+  )
+}
+
+export async function confirmGroupHandoff(
+  runId: string,
+  body: { decision_type?: string; note?: string; user_confirmed?: boolean }
+): Promise<{ handoff_status: string; message: string; ok: boolean }> {
+  return unwrapApiData(
+    await window.hermesDesktop.api<
+      ApiEnvelope<{ handoff_status: string; message: string; ok: boolean }> | {
+        handoff_status: string
+        message: string
+        ok: boolean
+      }
+    >({
+    ...profileScoped(),
+    path: `/api/group-chat/runs/${encodeURIComponent(runId)}/confirm-handoff`,
+    method: 'POST',
+    body
+  })
+  )
 }

@@ -9,6 +9,14 @@ export interface ContextSuggestion {
   meta?: string
 }
 
+export interface ComposerMentionSuggestion {
+  description?: string
+  label: string
+  plainText?: boolean
+  text: string
+  type?: string
+}
+
 export interface QuickModelOption {
   provider: string
   providerName: string
@@ -33,6 +41,7 @@ export interface ChatBarProps {
   focusKey?: string | null
   maxRecordingSeconds?: number
   state: ChatBarState
+  extraAtMentions?: ComposerMentionSuggestion[]
   gateway?: QiQiClawGateway | null
   queueSessionKey?: string | null
   sessionId?: string | null

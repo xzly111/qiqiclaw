@@ -2,7 +2,7 @@ import type { MutableRefObject } from 'react'
 import { useCallback, useRef } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 
-import { deleteSession, getSessionMessages, setSessionArchived } from '@/hermes'
+import { deleteGroupRoom, deleteSession, getSessionMessages, setSessionArchived } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChatMessages } from '@/lib/chat-messages'
 import { normalizePersonalityValue } from '@/lib/chat-runtime'
@@ -46,7 +46,7 @@ import {
 import { reportBackendContract } from '@/store/updates'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, UsageStats } from '@/types/hermes'
 
-import { NEW_CHAT_ROUTE, sessionRoute, SETTINGS_ROUTE } from '../../routes'
+import { GROUP_CHAT_ROUTE, NEW_CHAT_ROUTE, sessionRoute, SETTINGS_ROUTE } from '../../routes'
 import type { ClientSessionState, SidebarNavItem } from '../../types'
 
 interface SessionActionsOptions {
@@ -337,11 +337,13 @@ export function useSessionActions({
         // Pass the owning profile so a new chat under a non-launch profile (global
         // remote mode) builds its agent + persists against THAT profile's home/db.
         const newChatProfile = $newChatProfile.get()
+
         const created = await requestGateway<SessionCreateResponse>('session.create', {
           cols: 96,
           ...(cwd && { cwd }),
           ...(newChatProfile ? { profile: newChatProfile } : {})
         })
+
         const stored = created.stored_session_id ?? null
 
         if (
@@ -412,7 +414,7 @@ export function useSessionActions({
       }
 
       if (item.route) {
-        navigate(item.route)
+        navigate(item.id === 'group-chat' ? `${GROUP_CHAT_ROUTE}?new=${Date.now()}` : item.route)
       }
     },
     [navigate, startFreshSessionDraft]
@@ -775,6 +777,13 @@ export function useSessionActions({
       }
 
       try {
+        if (removed?.source === 'group-chat') {
+          await deleteGroupRoom(storedSessionId)
+          clearQueuedPrompts(storedSessionId)
+
+          return
+        }
+
         if (closingRuntimeId) {
           await requestGateway('session.close', { session_id: closingRuntimeId }).catch(() => undefined)
         }
@@ -842,6 +851,13 @@ export function useSessionActions({
       // Pins are keyed on the durable lineage-root id; the stored id may be the
       // live tip after compression. Drop both so the pin can't linger.
       const archivedPinId = archived ? sessionPinId(archived) : storedSessionId
+
+      if (archived?.source === 'group-chat') {
+        setSessions(prev => prev.filter(s => s.id !== storedSessionId))
+        $pinnedSessionIds.set(previousPinned.filter(id => id !== storedSessionId && id !== archivedPinId))
+
+        return
+      }
 
       // Soft-hide: drop from the sidebar immediately, keep the data.
       setSessions(prev => prev.filter(s => s.id !== storedSessionId))

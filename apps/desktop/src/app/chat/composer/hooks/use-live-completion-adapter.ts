@@ -5,6 +5,8 @@ export interface CompletionEntry {
   text: string
   display?: unknown
   meta?: unknown
+  plainText?: boolean
+  type?: string
 }
 
 export interface CompletionPayload {

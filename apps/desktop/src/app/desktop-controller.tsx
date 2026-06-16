@@ -12,7 +12,14 @@ import { Pane, PaneMain } from '@/components/pane-shell'
 import { useSkinCommand } from '@/themes/use-skin-command'
 
 import { formatRefValue } from '../components/assistant-ui/directive-text'
-import { getCronJobs, getSessionMessages, listAllProfileSessions, type SessionInfo, triggerCronJob } from '../hermes'
+import {
+  getCronJobs,
+  getSessionMessages,
+  listAllProfileSessions,
+  listGroupSessions,
+  type SessionInfo,
+  triggerCronJob
+} from '../hermes'
 import { preserveLocalAssistantErrors, toChatMessages } from '../lib/chat-messages'
 import { setCronFocusJobId, setCronJobs } from '../store/cron'
 import {
@@ -29,8 +36,8 @@ import {
   SIDEBAR_SESSIONS_PAGE_SIZE,
   unpinSession
 } from '../store/layout'
-import { $filePreviewTarget, $previewTarget, closeActiveRightRailTab } from '../store/preview'
 import { startManualOnboarding } from '../store/onboarding'
+import { $filePreviewTarget, $previewTarget, closeActiveRightRailTab } from '../store/preview'
 import {
   $activeGatewayProfile,
   $freshSessionRequest,
@@ -83,7 +90,7 @@ import { ModelVisibilityOverlay } from './model-visibility-overlay'
 import { RightSidebarPane } from './right-sidebar'
 import { $terminalTakeover } from './right-sidebar/store'
 import { PersistentTerminal, TerminalSlot } from './right-sidebar/terminal/persistent'
-import { CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import { CRON_ROUTE, groupChatRoute, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
 import { useCwdActions } from './session/hooks/use-cwd-actions'
 import { useQiQiClawConfig } from './session/hooks/use-hermes-config'
@@ -108,6 +115,7 @@ const AgentsView = lazy(async () => ({ default: (await import('./agents')).Agent
 const ArtifactsView = lazy(async () => ({ default: (await import('./artifacts')).ArtifactsView }))
 const CommandCenterView = lazy(async () => ({ default: (await import('./command-center')).CommandCenterView }))
 const CronView = lazy(async () => ({ default: (await import('./cron')).CronView }))
+const GroupChatView = lazy(async () => ({ default: (await import('./group-chat')).GroupChatView }))
 const LangGraphView = lazy(async () => ({ default: (await import('./langgraph')).LangGraphView }))
 const MessagingView = lazy(async () => ({ default: (await import('./messaging')).MessagingView }))
 const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).ProfilesView }))
@@ -152,9 +160,11 @@ function sessionsToKeep(scope?: string): Set<string> {
 export function DesktopController() {
   const queryClient = useQueryClient()
   const [fullFeatureDiagnosticsTrigger, setFullFeatureDiagnosticsTrigger] = useState(0)
+
   const triggerFullFeatureDiagnostics = useCallback(() => {
     setFullFeatureDiagnosticsTrigger(value => value + 1)
   }, [])
+
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -309,12 +319,16 @@ export function DesktopController() {
       // with few recent sessions isn't windowed out of the cross-profile
       // recency page — the empty-history-on-profile-switch bug.
       const sessionProfile = profileScope === ALL_PROFILES ? 'all' : profileScope
+
       const result = await listAllProfileSessions(limit, 1, 'exclude', 'recent', sessionProfile, {
         excludeSources: ['cron']
       })
 
       if (refreshSessionsRequestRef.current === requestId) {
-        setSessions(prev => mergeSessionPage(prev, result.sessions, sessionsToKeep()))
+        const groupResult = await listGroupSessions().catch(() => ({ sessions: [] }))
+        const combinedSessions = [...groupResult.sessions, ...result.sessions]
+
+        setSessions(prev => mergeSessionPage(prev, combinedSessions, sessionsToKeep()))
         setSessionsTotal(typeof result.total === 'number' ? result.total : result.sessions.length)
         setSessionProfileTotals(result.profile_totals ?? {})
       }
@@ -706,7 +720,11 @@ export function DesktopController() {
       }}
       onNavigate={selectSidebarItem}
       onNewSessionInWorkspace={startSessionInWorkspace}
-      onResumeSession={sessionId => navigate(sessionRoute(sessionId))}
+      onResumeSession={sessionId => {
+        const session = $sessions.get().find(item => item.id === sessionId)
+
+        navigate(session?.source === 'group-chat' ? groupChatRoute(sessionId) : sessionRoute(sessionId))
+      }}
       onTriggerCronJob={jobId => {
         void triggerCronJob(jobId)
           .then(() => refreshCronJobs())
@@ -937,6 +955,48 @@ export function DesktopController() {
               </Suspense>
             }
             path="artifacts"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <GroupChatView
+                  gateway={gatewayRef.current}
+                  maxVoiceRecordingSeconds={voiceMaxRecordingSeconds}
+                  onAddUrl={url => composer.addContextRefAttachment(`@url:${formatRefValue(url)}`, url)}
+                  onAttachDroppedItems={composer.attachDroppedItems}
+                  onAttachImageBlob={composer.attachImageBlob}
+                  onCancel={cancelRun}
+                  onPasteClipboardImage={() => void composer.pasteClipboardImage()}
+                  onPickFiles={() => void composer.pickContextPaths('file')}
+                  onPickFolders={() => void composer.pickContextPaths('folder')}
+                  onPickImages={() => void composer.pickImages()}
+                  onRemoveAttachment={id => void composer.removeAttachment(id)}
+                  onTranscribeAudio={transcribeVoiceAudio}
+                />
+              </Suspense>
+            }
+            path="group-chat"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <GroupChatView
+                  gateway={gatewayRef.current}
+                  maxVoiceRecordingSeconds={voiceMaxRecordingSeconds}
+                  onAddUrl={url => composer.addContextRefAttachment(`@url:${formatRefValue(url)}`, url)}
+                  onAttachDroppedItems={composer.attachDroppedItems}
+                  onAttachImageBlob={composer.attachImageBlob}
+                  onCancel={cancelRun}
+                  onPasteClipboardImage={() => void composer.pasteClipboardImage()}
+                  onPickFiles={() => void composer.pickContextPaths('file')}
+                  onPickFolders={() => void composer.pickContextPaths('folder')}
+                  onPickImages={() => void composer.pickImages()}
+                  onRemoveAttachment={id => void composer.removeAttachment(id)}
+                  onTranscribeAudio={transcribeVoiceAudio}
+                />
+              </Suspense>
+            }
+            path="group-chat/:roomId"
           />
           <Route element={null} path="cron" />
           <Route element={null} path="langgraph" />

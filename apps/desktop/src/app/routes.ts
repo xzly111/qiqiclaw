@@ -2,6 +2,7 @@ export const SESSION_ROUTE_PREFIX = '/'
 export const NEW_CHAT_ROUTE = '/'
 export const SETTINGS_ROUTE = '/settings'
 export const COMMAND_CENTER_ROUTE = '/command-center'
+export const GROUP_CHAT_ROUTE = '/group-chat'
 export const SKILLS_ROUTE = '/skills'
 export const MESSAGING_ROUTE = '/messaging'
 export const ARTIFACTS_ROUTE = '/artifacts'
@@ -16,6 +17,7 @@ export type AppView =
   | 'chat'
   | 'command-center'
   | 'cron'
+  | 'group-chat'
   | 'langgraph'
   | 'messaging'
   | 'profiles'
@@ -27,6 +29,7 @@ export type AppRouteId =
   | 'artifacts'
   | 'command-center'
   | 'cron'
+  | 'group-chat'
   | 'langgraph'
   | 'messaging'
   | 'new'
@@ -44,6 +47,7 @@ export const APP_ROUTES = [
   { id: 'new', path: NEW_CHAT_ROUTE, view: 'chat' },
   { id: 'settings', path: SETTINGS_ROUTE, view: 'settings' },
   { id: 'command-center', path: COMMAND_CENTER_ROUTE, view: 'command-center' },
+  { id: 'group-chat', path: GROUP_CHAT_ROUTE, view: 'group-chat' },
   { id: 'skills', path: SKILLS_ROUTE, view: 'skills' },
   { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
@@ -76,6 +80,10 @@ export function isNewChatRoute(pathname: string): boolean {
   return pathname === NEW_CHAT_ROUTE
 }
 
+export function isGroupChatRoute(pathname: string): boolean {
+  return pathname === GROUP_CHAT_ROUTE || pathname.startsWith(`${GROUP_CHAT_ROUTE}/`)
+}
+
 export function routeSessionId(pathname: string): string | null {
   if (!pathname.startsWith(SESSION_ROUTE_PREFIX) || RESERVED_PATHS.has(pathname)) {
     return null
@@ -90,7 +98,15 @@ export function sessionRoute(sessionId: string): string {
   return `${SESSION_ROUTE_PREFIX}${encodeURIComponent(sessionId)}`
 }
 
+export function groupChatRoute(roomId: string): string {
+  return `${GROUP_CHAT_ROUTE}/${encodeURIComponent(roomId)}`
+}
+
 export function appViewForPath(pathname: string): AppView {
+  if (isGroupChatRoute(pathname)) {
+    return 'group-chat'
+  }
+
   if (isNewChatRoute(pathname) || routeSessionId(pathname)) {
     return 'chat'
   }
