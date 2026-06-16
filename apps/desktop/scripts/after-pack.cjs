@@ -20,10 +20,52 @@
  */
 
 const path = require('node:path')
+const fs = require('node:fs')
 
 const { stampExeIdentity } = require('./set-exe-identity.cjs')
 
+function removeBundledAppUpdateMetadata(appOutDir) {
+  if (!appOutDir || typeof appOutDir !== 'string' || !fs.existsSync(appOutDir)) {
+    return []
+  }
+
+  const removed = []
+  const queue = [appOutDir]
+  while (queue.length > 0) {
+    const current = queue.shift()
+    let entries
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        queue.push(fullPath)
+        continue
+      }
+      if (entry.isFile() && entry.name === 'app-update.yml') {
+        fs.rmSync(fullPath, { force: true })
+        removed.push(fullPath)
+      }
+    }
+  }
+  return removed
+}
+
+exports.removeBundledAppUpdateMetadata = removeBundledAppUpdateMetadata
+
 exports.default = async function afterPack(context) {
+  try {
+    const removed = removeBundledAppUpdateMetadata(context?.appOutDir)
+    for (const file of removed) {
+      console.log(`[after-pack] removed bundled app-update metadata: ${file}`)
+    }
+  } catch (err) {
+    console.warn(`[after-pack] could not remove bundled app-update metadata (${err.message}); continuing`)
+  }
+
   if (context.electronPlatformName !== 'win32') {
     return
   }
