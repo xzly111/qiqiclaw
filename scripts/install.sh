@@ -64,6 +64,8 @@ PYTHON_VERSION="3.11"
 NODE_VERSION="22"
 NODE_DIST_BASE_URL="${QIQICLAW_NODE_DIST_BASE_URL:-https://nodejs.org/dist}"
 UV_INSTALLER_URL="${QIQICLAW_UV_INSTALLER_URL:-https://astral.sh/uv/install.sh}"
+UV_RELEASE_BASE_URL="${QIQICLAW_UV_RELEASE_BASE_URL:-https://github.com/astral-sh/uv/releases/latest/download}"
+UV_RELEASE_MIRROR_BASE_URL="${QIQICLAW_UV_RELEASE_MIRROR_BASE_URL:-}"
 PLATFORM_SDKS_TIMEOUT_SECONDS="${QIQICLAW_PLATFORM_SDKS_TIMEOUT_SECONDS:-600}"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
@@ -643,10 +645,24 @@ install_uv() {
     log_info "Installing managed uv into $HERMES_HOME/bin ..."
     mkdir -p "$HERMES_HOME/bin"
 
+    if install_uv_from_existing_command "$_managed_uv"; then
+        UV_CMD="$_managed_uv"
+        UV_VERSION=$($UV_CMD --version 2>/dev/null)
+        log_success "Managed uv copied from existing uv ($UV_VERSION)"
+        return 0
+    fi
+
     if [ "$INSTALL_SOURCE" = "gitee" ] && install_uv_from_python_mirror "$_managed_uv"; then
         UV_CMD="$_managed_uv"
         UV_VERSION=$($UV_CMD --version 2>/dev/null)
         log_success "Managed uv installed from domestic PyPI mirror ($UV_VERSION)"
+        return 0
+    fi
+
+    if install_uv_from_release_archive "$_managed_uv"; then
+        UV_CMD="$_managed_uv"
+        UV_VERSION=$($UV_CMD --version 2>/dev/null)
+        log_success "Managed uv installed from release archive ($UV_VERSION)"
         return 0
     fi
 
@@ -656,7 +672,7 @@ install_uv() {
     local _uv_install_log _uv_installer
     _uv_install_log="$(mktemp 2>/dev/null || echo "/tmp/hermes-uv-install.$$.log")"
     _uv_installer="$(mktemp 2>/dev/null || echo "/tmp/hermes-uv-installer.$$.sh")"
-    if ! curl -LsSf "$UV_INSTALLER_URL" -o "$_uv_installer" 2>"$_uv_install_log"; then
+    if ! curl -LsSf --connect-timeout 10 --max-time 45 "$UV_INSTALLER_URL" -o "$_uv_installer" 2>"$_uv_install_log"; then
         log_error "Failed to download uv installer from $UV_INSTALLER_URL"
         log_info "curl output:"
         sed 's/^/    /' "$_uv_install_log" >&2
@@ -688,6 +704,113 @@ install_uv() {
         rm -f "$_uv_install_log" "$_uv_installer"
         exit 1
     fi
+}
+
+install_uv_from_existing_command() {
+    local _managed_uv="$1"
+    local _existing_uv
+
+    _existing_uv="$(command -v uv 2>/dev/null || true)"
+    if [ -z "$_existing_uv" ]; then
+        return 1
+    fi
+    if [ "$_existing_uv" = "$_managed_uv" ]; then
+        return 1
+    fi
+    if ! "$_existing_uv" --version >/dev/null 2>&1; then
+        log_warn "Found uv at $_existing_uv, but it did not run successfully"
+        return 1
+    fi
+
+    cp "$_existing_uv" "$_managed_uv" 2>/dev/null || return 1
+    chmod +x "$_managed_uv"
+    [ -x "$_managed_uv" ] && "$_managed_uv" --version >/dev/null 2>&1
+}
+
+uv_release_target() {
+    local arch os
+    arch="$(uname -m 2>/dev/null || echo "")"
+    case "$arch" in
+        x86_64|amd64) arch="x86_64" ;;
+        aarch64|arm64) arch="aarch64" ;;
+        armv7l|armv7*) arch="armv7" ;;
+        *) return 1 ;;
+    esac
+
+    case "$OS" in
+        linux) os="unknown-linux-gnu" ;;
+        macos) os="apple-darwin" ;;
+        *) return 1 ;;
+    esac
+
+    printf 'uv-%s-%s' "$arch" "$os"
+}
+
+install_uv_from_release_archive() {
+    local _managed_uv="$1"
+    local _target _archive_url _tmp_dir _archive _download_log _base_url
+
+    _target="$(uv_release_target 2>/dev/null || true)"
+    if [ -z "$_target" ]; then
+        log_warn "Could not determine uv release archive for $(uname -s 2>/dev/null || echo unknown)/$(uname -m 2>/dev/null || echo unknown); falling back to installer"
+        return 1
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        log_warn "curl not found; falling back to uv installer"
+        return 1
+    fi
+    if ! command -v tar >/dev/null 2>&1; then
+        log_warn "tar not found; falling back to uv installer"
+        return 1
+    fi
+
+    _tmp_dir="$(mktemp -d 2>/dev/null || echo "/tmp/qiqiclaw-uv-release.$$")"
+    _archive="$_tmp_dir/uv.tar.gz"
+    _download_log="$_tmp_dir/download.log"
+    local _base_urls=()
+    if [ "$INSTALL_SOURCE" = "gitee" ] && [ -n "$UV_RELEASE_MIRROR_BASE_URL" ]; then
+        _base_urls+=("${UV_RELEASE_MIRROR_BASE_URL%/}")
+    fi
+    _base_urls+=("${UV_RELEASE_BASE_URL%/}")
+
+    local _downloaded=false
+    for _base_url in "${_base_urls[@]}"; do
+        _archive_url="$_base_url/$_target.tar.gz"
+        log_info "Trying uv release archive $_archive_url ..."
+        if curl -LfsS --connect-timeout 10 --max-time 45 "$_archive_url" -o "$_archive" 2>"$_download_log"; then
+            _downloaded=true
+            break
+        fi
+        log_warn "Could not download uv release archive from $_archive_url"
+        sed 's/^/    /' "$_download_log" >&2 || true
+    done
+    if [ "$_downloaded" != true ]; then
+        log_warn "Could not download a uv release archive; falling back to installer"
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+
+    if ! tar -xzf "$_archive" -C "$_tmp_dir" >/dev/null 2>&1; then
+        log_warn "Could not extract uv release archive; falling back to installer"
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+
+    local _uv_bin
+    _uv_bin="$(find "$_tmp_dir" -type f -name uv -perm -u+x 2>/dev/null | head -n 1)"
+    if [ -z "$_uv_bin" ]; then
+        _uv_bin="$(find "$_tmp_dir" -type f -name uv 2>/dev/null | head -n 1)"
+    fi
+    if [ -z "$_uv_bin" ]; then
+        log_warn "uv release archive did not contain a uv executable; falling back to installer"
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+
+    cp "$_uv_bin" "$_managed_uv"
+    chmod +x "$_managed_uv"
+    rm -rf "$_tmp_dir"
+    [ -x "$_managed_uv" ]
 }
 
 install_uv_from_python_mirror() {

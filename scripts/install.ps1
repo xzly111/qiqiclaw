@@ -379,6 +379,13 @@ function Install-Uv {
     Write-Info "Installing managed uv into $QiQiClawHome\bin ..."
     New-Item -ItemType Directory -Path (Join-Path $QiQiClawHome "bin") -Force | Out-Null
 
+    if (Install-UvFromExistingCommand -ManagedUv $managedUv) {
+        $script:UvCmd = $managedUv
+        $version = & $managedUv --version
+        Write-Success "Managed uv copied from existing uv ($version)"
+        return $true
+    }
+
     if (($Source.ToLowerInvariant() -eq "gitee") -and (Install-UvFromPythonMirror -ManagedUv $managedUv)) {
         $script:UvCmd = $managedUv
         $version = & $managedUv --version
@@ -409,6 +416,28 @@ function Install-Uv {
         if ($prevEAP) { $ErrorActionPreference = $prevEAP }
         Write-Err "Failed to install uv: $_"
         Write-Info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
+        return $false
+    }
+}
+
+function Install-UvFromExistingCommand {
+    param([string]$ManagedUv)
+
+    $existing = Get-Command uv -ErrorAction SilentlyContinue
+    if (-not $existing) { return $false }
+    $existingPath = $existing.Source
+    if (-not $existingPath -or $existingPath -eq $ManagedUv) { return $false }
+
+    try {
+        & $existingPath --version 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Found uv at $existingPath, but it did not run successfully"
+            return $false
+        }
+        Copy-Item -Force $existingPath $ManagedUv
+        return (Test-Path $ManagedUv)
+    } catch {
+        Write-Warn "Could not reuse existing uv at $existingPath: $_"
         return $false
     }
 }
