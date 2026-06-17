@@ -393,6 +393,13 @@ function Install-Uv {
         return $true
     }
 
+    if (Install-UvFromReleaseArchive -ManagedUv $managedUv) {
+        $script:UvCmd = $managedUv
+        $version = & $managedUv --version
+        Write-Success "Managed uv installed from release archive ($version)"
+        return $true
+    }
+
     # UV_INSTALL_DIR tells the astral installer to place the binary
     # directly into $QiQiClawHome\bin instead of ~/.local/bin.
     $prevEAP = $ErrorActionPreference
@@ -417,6 +424,54 @@ function Install-Uv {
         Write-Err "Failed to install uv: $_"
         Write-Info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
         return $false
+    }
+}
+
+function Get-UvReleaseTarget {
+    $arch = Get-WindowsArch
+    switch ($arch) {
+        "arm64" { return "uv-aarch64-pc-windows-msvc" }
+        "x64" { return "uv-x86_64-pc-windows-msvc" }
+        default { return $null }
+    }
+}
+
+function Install-UvFromReleaseArchive {
+    param([string]$ManagedUv)
+
+    $target = Get-UvReleaseTarget
+    if (-not $target) {
+        Write-Warn "Could not determine uv Windows release archive for this CPU; falling back to official installer"
+        return $false
+    }
+
+    $baseUrl = if ($env:QIQICLAW_UV_RELEASE_BASE_URL) {
+        $env:QIQICLAW_UV_RELEASE_BASE_URL.TrimEnd("/")
+    } else {
+        "https://github.com/astral-sh/uv/releases/latest/download"
+    }
+    $downloadUrl = "$baseUrl/$target.zip"
+    $tmpBase = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
+    $tmpRoot = Join-Path $tmpBase ("qiqiclaw-uv-" + [guid]::NewGuid().ToString("N"))
+    $zipPath = Join-Path $tmpRoot "uv.zip"
+    try {
+        New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
+        Write-Info "Trying uv release archive $downloadUrl ..."
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -Path $zipPath -DestinationPath $tmpRoot -Force
+        $uvExe = Get-ChildItem -Path $tmpRoot -Recurse -Filter "uv.exe" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $uvExe) {
+            Write-Warn "uv release archive did not contain uv.exe; falling back to official installer"
+            return $false
+        }
+        Copy-Item -Force $uvExe.FullName $ManagedUv
+        return (Test-Path $ManagedUv)
+    } catch {
+        Write-Warn "Could not install uv from release archive: $_"
+        return $false
+    } finally {
+        Remove-Item -Recurse -Force $tmpRoot -ErrorAction SilentlyContinue
     }
 }
 
