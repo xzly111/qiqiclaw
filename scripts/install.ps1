@@ -437,7 +437,7 @@ function Install-UvFromExistingCommand {
         Copy-Item -Force $existingPath $ManagedUv
         return (Test-Path $ManagedUv)
     } catch {
-        Write-Warn "Could not reuse existing uv at $existingPath: $_"
+        Write-Warn "Could not reuse existing uv at ${existingPath}: $_"
         return $false
     }
 }
